@@ -1,0 +1,1424 @@
+/* ==========================================================================
+   Герои Меча и Магии V: Эпоха Грифонов — 3D Мини
+   homm5_royal.css — Готический королевский стиль (Obsidian, Sapphire & Gold)
+   Мобильная адаптивность под PWA, iPhone (Safe Area) и Android APK
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Marcellus&display=swap');
+
+:root {
+  /* Цветовая палитра: Сапфировое стекло, Обсидиан и Имперское Золото */
+  --bg-obsidian-deep: rgba(6, 10, 20, 0.94);
+  --bg-sapphire-glass: rgba(10, 16, 32, 0.88);
+  --bg-sapphire-light: rgba(18, 28, 54, 0.82);
+  --bg-parchment-glass: rgba(22, 18, 14, 0.92);
+
+  --gold-imperial: #d4af37;
+  --gold-bright: #fbbf24;
+  --gold-glow: #fef08a;
+  --gold-dark: #b45309;
+  --gold-border: #78350f;
+
+  --haven-blue: #2563eb;
+  --haven-blue-glow: #60a5fa;
+  --inferno-red: #dc2626;
+  --inferno-flame: #ef4444;
+  --inferno-glow: #f87171;
+
+  --holy-light: #fef9c3;
+  --mana-purple: #a855f7;
+  --mana-glow: #c084fc;
+  --crystal-cyan: #38bdf8;
+  --heal-green: #34d399;
+
+  --font-serif-royal: 'Cinzel', 'Palatino Linotype', 'Book Antiqua', 'Georgia', serif;
+  --font-serif-sub: 'Marcellus', 'Georgia', 'Times New Roman', serif;
+  --font-ui-clean: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+  --shadow-royal: 0 8px 32px rgba(0, 0, 0, 0.75);
+  --shadow-gold-inset: inset 0 0 16px rgba(212, 175, 55, 0.18);
+  --border-double-gold: 2px solid var(--gold-imperial);
+  --border-radius-royal: 8px;
+  --backdrop-blur: blur(12px);
+  --transition-smooth: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* --------------------------------------------------------------------------
+   Базовый слой пользовательского интерфейса с поддержкой Safe Area
+   -------------------------------------------------------------------------- */
+#ui-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 50;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: var(--font-serif-sub);
+  color: #f1f5f9;
+  box-sizing: border-box;
+  padding-top: max(8px, env(safe-area-inset-top));
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding-left: max(8px, env(safe-area-inset-left));
+  padding-right: max(8px, env(safe-area-inset-right));
+}
+
+#ui-layer * {
+  box-sizing: border-box;
+}
+
+.homm5-interactive {
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Универсальные панели и рамки в стиле Героев 5
+   -------------------------------------------------------------------------- */
+.homm5-panel {
+  background: var(--bg-sapphire-glass);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border: var(--border-double-gold);
+  border-radius: var(--border-radius-royal);
+  box-shadow: var(--shadow-royal), var(--shadow-gold-inset);
+  position: relative;
+  pointer-events: auto;
+}
+
+.homm5-panel::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: calc(var(--border-radius-royal) - 2px);
+  pointer-events: none;
+}
+
+/* Чеканные золотые уголки для панелей */
+.homm5-corner-decor::after {
+  content: '❖';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 14px;
+  color: var(--gold-bright);
+  text-shadow: 0 0 6px var(--gold-glow);
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Кнопки королевского двора
+   -------------------------------------------------------------------------- */
+.homm5-btn {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  color: var(--gold-glow);
+  font-family: var(--font-serif-royal);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border: 1px solid var(--gold-imperial);
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: var(--transition-smooth);
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+.homm5-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #334155 0%, #1e293b 100%);
+  border-color: var(--gold-bright);
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.homm5-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.homm5-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.8);
+  border-color: #475569;
+}
+
+.homm5-btn-gold {
+  background: linear-gradient(180deg, #b45309 0%, #78350f 100%);
+  border-color: var(--gold-bright);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.homm5-btn-gold:hover:not(:disabled) {
+  background: linear-gradient(180deg, #d97706 0%, #92400e 100%);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.6);
+}
+
+.homm5-btn-crimson {
+  background: linear-gradient(180deg, #991b1b 0%, #450a0a 100%);
+  border-color: var(--inferno-flame);
+  color: #fee2e2;
+}
+
+.homm5-btn-crimson:hover:not(:disabled) {
+  background: linear-gradient(180deg, #dc2626 0%, #7f1d1d 100%);
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.6);
+}
+
+.homm5-btn-magic {
+  background: linear-gradient(180deg, #6b21a8 0%, #3b0764 100%);
+  border-color: var(--mana-purple);
+  color: #f3e8ff;
+}
+
+.homm5-btn-magic:hover:not(:disabled) {
+  background: linear-gradient(180deg, #9333ea 0%, #581c87 100%);
+  box-shadow: 0 0 18px rgba(168, 85, 247, 0.6);
+}
+
+/* --------------------------------------------------------------------------
+   1. Верхний королевский бар (Ресурсы, Календарь, Переключение режимов)
+   -------------------------------------------------------------------------- */
+#homm5-top-bar {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  right: max(10px, env(safe-area-inset-right));
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  z-index: 60;
+  gap: 10px;
+}
+
+.homm5-resources-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.homm5-res-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-family: var(--font-ui-clean);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.homm5-res-gold {
+  color: var(--gold-bright);
+}
+
+.homm5-res-crystal {
+  color: var(--crystal-cyan);
+}
+
+.homm5-res-mana {
+  color: var(--mana-glow);
+}
+
+.homm5-calendar-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #e2e8f0;
+  font-family: var(--font-serif-royal);
+  font-size: 13px;
+  font-weight: 700;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 20px;
+  padding: 4px 14px;
+}
+
+.homm5-mode-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------------------
+   2. Левая сворачиваемая панель (Армия Героя, Постройки, Миссии)
+   -------------------------------------------------------------------------- */
+#homm5-left-panel {
+  position: absolute;
+  top: 72px;
+  left: max(10px, env(safe-area-inset-left));
+  width: 290px;
+  max-height: calc(100% - 150px);
+  display: flex;
+  flex-direction: column;
+  z-index: 55;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#homm5-left-panel.homm5-collapsed {
+  transform: translateX(-100%);
+}
+
+.homm5-left-header {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+}
+
+.homm5-left-title {
+  font-family: var(--font-serif-royal);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gold-bright);
+  letter-spacing: 0.5px;
+}
+
+/* Выступающая кнопка-ярлык для сворачивания панели */
+#homm5-left-panel .homm5-toggle-btn {
+  position: absolute;
+  right: -34px;
+  top: 8px;
+  width: 34px;
+  height: 38px;
+  background: var(--bg-sapphire-glass);
+  border: var(--border-double-gold);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: var(--gold-bright);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 4px 4px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+  transition: var(--transition-smooth);
+}
+
+#homm5-left-panel .homm5-toggle-btn:hover {
+  background: rgba(30, 41, 59, 0.95);
+  color: #fff;
+}
+
+.homm5-left-content {
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Стек юнитов в армии */
+.homm5-army-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.homm5-army-slot {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.homm5-army-slot:hover {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
+}
+
+.homm5-slot-tier {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 10px;
+  font-family: var(--font-serif-royal);
+  color: var(--gold-glow);
+}
+
+.homm5-slot-icon {
+  font-size: 28px;
+  margin: 4px 0;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8));
+}
+
+.homm5-slot-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #e2e8f0;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.homm5-slot-count {
+  font-family: var(--font-ui-clean);
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--gold-bright);
+  margin-top: 2px;
+}
+
+/* Карточки построек / миссий в левой панели */
+.homm5-list-item {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  transition: var(--transition-smooth);
+}
+
+.homm5-list-item:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(212, 175, 55, 0.5);
+}
+
+.homm5-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.homm5-item-title {
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.homm5-item-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* --------------------------------------------------------------------------
+   3. Фирменная нижняя панель Боя и Шкалы Инициативы (ATB)
+   -------------------------------------------------------------------------- */
+#homm5-combat-hud {
+  position: absolute;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: max(10px, env(safe-area-inset-left));
+  right: max(10px, env(safe-area-inset-right));
+  min-height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 14px;
+  z-index: 60;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+#homm5-combat-hud.homm5-hidden {
+  opacity: 0;
+  transform: translateY(120px);
+  pointer-events: none;
+}
+
+/* 3.1. Крупная карточка текущего активного существа (Слева) */
+.homm5-active-card {
+  width: 250px;
+  min-height: 94px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 2px solid var(--gold-bright);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  position: relative;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.3);
+  flex-shrink: 0;
+}
+
+.homm5-active-portrait {
+  width: 60px;
+  height: 60px;
+  background: radial-gradient(circle, #1e293b 0%, #090d16 100%);
+  border: 2px solid var(--gold-imperial);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.homm5-active-faction-tag {
+  position: absolute;
+  bottom: -4px;
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.homm5-tag-haven {
+  background: var(--haven-blue);
+  color: #fff;
+  border: 1px solid var(--gold-bright);
+}
+
+.homm5-tag-inferno {
+  background: var(--inferno-red);
+  color: #fff;
+  border: 1px solid var(--inferno-glow);
+}
+
+.homm5-active-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-grow: 1;
+  overflow: hidden;
+}
+
+.homm5-active-name-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.homm5-active-name {
+  font-family: var(--font-serif-royal);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--gold-glow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.homm5-active-count {
+  font-family: var(--font-ui-clean);
+  font-weight: 800;
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.homm5-hp-bar-wrap {
+  width: 100%;
+  height: 8px;
+  background: #020617;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.homm5-hp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+  width: 100%;
+  transition: width 0.3s ease;
+}
+
+.homm5-hp-text {
+  font-family: var(--font-ui-clean);
+  font-size: 9px;
+  color: #cbd5e1;
+  display: flex;
+  justify-content: space-between;
+}
+
+.homm5-active-mini-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+/* 3.2. Лента Инициативы ATB (Центр) */
+.homm5-atb-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-grow: 1;
+  max-width: 680px;
+}
+
+.homm5-atb-label {
+  font-family: var(--font-serif-royal);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--gold-imperial);
+  text-transform: uppercase;
+}
+
+.homm5-atb-queue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 8px;
+  padding: 6px 12px;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
+}
+
+.homm5-atb-slot {
+  width: 44px;
+  height: 52px;
+  background: #090d16;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  flex-shrink: 0;
+}
+
+.homm5-atb-slot:hover {
+  transform: translateY(-3px) scale(1.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.8);
+}
+
+.homm5-atb-haven {
+  border: 2px solid var(--haven-blue-glow);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.homm5-atb-inferno {
+  border: 2px solid var(--inferno-flame);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+.homm5-atb-current {
+  border: 2px solid var(--gold-bright) !important;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.8) !important;
+  animation: homm5PulseGold 1.6s infinite alternate;
+}
+
+@keyframes homm5PulseGold {
+  0% { box-shadow: 0 0 8px rgba(251, 191, 36, 0.5); }
+  100% { box-shadow: 0 0 20px rgba(251, 191, 36, 1); }
+}
+
+.homm5-atb-icon {
+  font-size: 20px;
+}
+
+.homm5-atb-count {
+  font-family: var(--font-ui-clean);
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* 3.3. Кнопки действий боя (Справа) */
+.homm5-combat-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  width: 320px;
+  flex-shrink: 0;
+}
+
+.homm5-action-btn {
+  padding: 6px 8px;
+  font-size: 11px;
+  min-height: 40px;
+}
+
+/* --------------------------------------------------------------------------
+   4. Правый полупрозрачный Боевой Летописец (Журнал боя)
+   -------------------------------------------------------------------------- */
+#homm5-combat-log {
+  position: absolute;
+  top: 72px;
+  right: max(10px, env(safe-area-inset-right));
+  width: 310px;
+  height: 280px;
+  display: flex;
+  flex-direction: column;
+  z-index: 55;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#homm5-combat-log.homm5-collapsed {
+  transform: translateX(100%);
+}
+
+.homm5-log-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.homm5-log-title {
+  font-family: var(--font-serif-royal);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+
+/* Выступающая кнопка-ярлык для сворачивания журнала боя */
+#homm5-combat-log .homm5-toggle-btn {
+  position: absolute;
+  left: -34px;
+  top: 8px;
+  width: 34px;
+  height: 38px;
+  background: var(--bg-sapphire-glass);
+  border: var(--border-double-gold);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  color: var(--gold-bright);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: -4px 4px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+  transition: var(--transition-smooth);
+}
+
+#homm5-combat-log .homm5-toggle-btn:hover {
+  background: rgba(30, 41, 59, 0.95);
+  color: #fff;
+}
+
+.homm5-log-body {
+  padding: 10px 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  flex-grow: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
+.homm5-log-entry {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.4);
+  border-left: 2px solid transparent;
+}
+
+.homm5-log-haven {
+  border-left-color: var(--haven-blue-glow);
+  color: #e0f2fe;
+}
+
+.homm5-log-inferno {
+  border-left-color: var(--inferno-flame);
+  color: #fee2e2;
+}
+
+.homm5-log-spell {
+  border-left-color: var(--mana-purple);
+  color: #f3e8ff;
+  font-style: italic;
+}
+
+.homm5-log-crit {
+  border-left-color: var(--gold-bright);
+  color: #fef08a;
+  font-weight: 700;
+}
+
+.homm5-log-round {
+  text-align: center;
+  color: var(--gold-imperial);
+  font-family: var(--font-serif-royal);
+  font-weight: 700;
+  border-bottom: 1px dashed rgba(212, 175, 55, 0.3);
+  padding: 4px 0;
+}
+
+/* --------------------------------------------------------------------------
+   5. Модальные окна (Замок, Книга Магии, Осмотр, Победа, Сохранения, PWA)
+   -------------------------------------------------------------------------- */
+.homm5-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 16, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  padding: 12px;
+}
+
+.homm5-modal-backdrop.homm5-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.homm5-modal-window {
+  width: 90%;
+  max-width: 680px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: homm5ModalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes homm5ModalIn {
+  0% { transform: scale(0.92); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.homm5-modal-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.4);
+  background: rgba(15, 23, 42, 0.95);
+  flex-shrink: 0;
+}
+
+.homm5-modal-title {
+  font-family: var(--font-serif-royal);
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--gold-bright);
+  letter-spacing: 0.5px;
+}
+
+.homm5-modal-close {
+  background: transparent;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  color: var(--gold-glow);
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-smooth);
+}
+
+.homm5-modal-close:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: var(--inferno-flame);
+  color: #fff;
+}
+
+.homm5-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 5.1. Модалка: Отстройка Замка и Наём Войск */
+.homm5-buildings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.homm5-building-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+
+.homm5-building-built {
+  border-color: var(--haven-blue-glow);
+}
+
+.homm5-bld-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.homm5-bld-icon {
+  font-size: 32px;
+}
+
+.homm5-bld-title {
+  font-family: var(--font-serif-royal);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gold-glow);
+}
+
+.homm5-bld-desc {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.homm5-bld-cost-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(212, 175, 55, 0.2);
+}
+
+/* 5.2. Модалка: Книга Заклинаний Эльрата */
+.homm5-spellbook-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.homm5-spell-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--gold-imperial);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  position: relative;
+}
+
+.homm5-spell-card:hover:not(.homm5-spell-disabled) {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.5);
+  transform: translateY(-2px);
+}
+
+.homm5-spell-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.7);
+}
+
+.homm5-spell-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.homm5-spell-icon-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.homm5-spell-icon {
+  font-size: 26px;
+}
+
+.homm5-spell-name {
+  font-family: var(--font-serif-royal);
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+}
+
+.homm5-spell-mana-tag {
+  font-family: var(--font-ui-clean);
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--mana-glow);
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid var(--mana-purple);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.homm5-spell-school {
+  font-size: 11px;
+  color: var(--gold-imperial);
+  font-style: italic;
+}
+
+.homm5-spell-desc {
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.4;
+}
+
+/* 5.3. Модалка: Осмотр Существа (ПКМ) */
+.homm5-inspect-body {
+  display: flex;
+  gap: 20px;
+}
+
+.homm5-inspect-avatar-box {
+  width: 140px;
+  height: 180px;
+  background: radial-gradient(circle, #1e293b 0%, #090d16 100%);
+  border: 2px solid var(--gold-imperial);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.homm5-inspect-avatar-icon {
+  font-size: 64px;
+}
+
+.homm5-inspect-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  flex-grow: 1;
+}
+
+.homm5-stat-pill {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.homm5-stat-label {
+  color: #94a3b8;
+}
+
+.homm5-stat-value {
+  font-family: var(--font-ui-clean);
+  font-weight: 700;
+  color: var(--gold-glow);
+}
+
+.homm5-inspect-ability-box {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* 5.4. Модалка: Сундук Сокровищ (Золото vs Опыт) */
+.homm5-chest-choices {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.homm5-chest-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 2px solid var(--gold-imperial);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.homm5-chest-card:hover {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 20px rgba(251, 191, 36, 0.5);
+  transform: translateY(-2px);
+}
+
+.homm5-chest-icon {
+  font-size: 48px;
+}
+
+/* 5.5. Модалка: Экран Победы / Поражения */
+.homm5-victory-stars {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 42px;
+  color: var(--gold-bright);
+  margin: 10px 0;
+  text-shadow: 0 0 16px var(--gold-glow);
+}
+
+.homm5-star-empty {
+  color: #475569;
+  text-shadow: none;
+}
+
+/* 5.6. Модалка: Хранилище Сохранений (Save Engine v3) */
+.homm5-save-storage-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--crystal-cyan);
+}
+
+.homm5-save-textarea {
+  width: 100%;
+  height: 90px;
+  background: #020617;
+  color: #94a3b8;
+  font-family: monospace;
+  font-size: 11px;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 6px;
+  padding: 8px;
+  resize: none;
+}
+
+/* 5.7. Модалка: Мобильная версия и Android APK (PWA) */
+.homm5-install-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.homm5-install-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.homm5-install-card-title {
+  font-family: var(--font-serif-royal);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--gold-bright);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.homm5-install-desc {
+  font-size: 12px;
+  color: #cbd5e1;
+  line-height: 1.45;
+}
+
+.homm5-ios-tip {
+  background: rgba(212, 175, 55, 0.12);
+  border: 1px dashed var(--gold-bright);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #fef08a;
+  line-height: 1.45;
+}
+
+/* --------------------------------------------------------------------------
+   6. Всплывающий боевой текст урона / критов / лечения
+   -------------------------------------------------------------------------- */
+#homm5-floating-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 90;
+  overflow: hidden;
+}
+
+.homm5-fct {
+  position: absolute;
+  font-family: var(--font-serif-royal);
+  font-weight: 900;
+  font-size: 20px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9), 0 0 10px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: homm5FloatFade 1.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes homm5FloatFade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.6);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -20px) scale(1.15);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -55px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -75px) scale(0.9);
+  }
+}
+
+.homm5-fct-damage {
+  color: #ef4444;
+}
+
+.homm5-fct-crit {
+  color: var(--gold-bright);
+  font-size: 26px;
+  text-shadow: 0 0 14px var(--gold-bright), 0 2px 6px #000;
+}
+
+.homm5-fct-heal {
+  color: var(--heal-green);
+  font-size: 22px;
+}
+
+.homm5-fct-luck {
+  color: #fde047;
+  font-size: 24px;
+}
+
+.homm5-fct-mana {
+  color: var(--mana-glow);
+  font-size: 20px;
+}
+
+/* --------------------------------------------------------------------------
+   7. Тултипы и подсказки
+   -------------------------------------------------------------------------- */
+.homm5-tooltip {
+  position: absolute;
+  background: var(--bg-obsidian-deep);
+  border: 1px solid var(--gold-imperial);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #f1f5f9;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  z-index: 120;
+  max-width: 260px;
+  line-height: 1.4;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.homm5-tooltip.homm5-active {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------------------
+   8. Мобильная адаптивность под экраны смартфонов (< 860px и < 520px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 1024px) {
+  #homm5-left-panel {
+    width: 260px;
+  }
+  #homm5-combat-log {
+    width: 270px;
+  }
+  .homm5-active-card {
+    width: 220px;
+  }
+  .homm5-combat-actions {
+    width: 270px;
+  }
+}
+
+@media (max-width: 860px) {
+  #homm5-top-bar {
+    min-height: auto;
+    padding: 6px 10px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .homm5-resources-group {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .homm5-resources-group::-webkit-scrollbar {
+    display: none;
+  }
+  .homm5-res-badge {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+  .homm5-calendar-badge {
+    display: none;
+  }
+  .homm5-mode-nav {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 6px;
+    padding-bottom: 2px;
+  }
+  .homm5-mode-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .homm5-mode-nav .homm5-btn {
+    flex-shrink: 0;
+    padding: 6px 8px;
+    font-size: 11px;
+    min-height: 36px;
+  }
+  #homm5-left-panel {
+    top: 96px;
+    width: 250px;
+  }
+  #homm5-combat-log {
+    top: 96px;
+    width: 260px;
+    height: 220px;
+  }
+  #homm5-combat-hud {
+    height: auto;
+    flex-direction: column;
+    padding: 8px;
+    gap: 8px;
+    bottom: max(6px, env(safe-area-inset-bottom));
+  }
+  .homm5-active-card {
+    width: 100%;
+    min-height: 64px;
+    height: auto;
+  }
+  .homm5-atb-container {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .homm5-atb-container::-webkit-scrollbar {
+    display: none;
+  }
+  .homm5-atb-queue {
+    width: max-content;
+    margin: 0 auto;
+  }
+  .homm5-combat-actions {
+    width: 100%;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .homm5-action-btn {
+    min-height: 42px;
+    font-size: 11px;
+    padding: 6px 4px;
+  }
+}
+
+@media (max-width: 520px) {
+  #homm5-top-bar {
+    padding: 4px 6px;
+  }
+  .homm5-res-badge {
+    padding: 2px 6px;
+    font-size: 11px;
+  }
+  .homm5-mode-nav .homm5-btn {
+    padding: 5px 6px;
+    font-size: 10px;
+    min-height: 34px;
+  }
+  #homm5-left-panel {
+    width: 220px;
+    top: 86px;
+  }
+  #homm5-combat-log {
+    width: 220px;
+    top: 86px;
+    height: 180px;
+  }
+  .homm5-combat-actions {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .homm5-action-btn {
+    min-height: 44px;
+    font-size: 11px;
+  }
+  .homm5-modal-window {
+    width: 96%;
+    max-height: 90vh;
+  }
+  .homm5-modal-header {
+    padding: 10px 14px;
+  }
+  .homm5-modal-title {
+    font-size: 15px;
+  }
+  .homm5-modal-body {
+    padding: 12px;
+    gap: 12px;
+  }
+  .homm5-buildings-grid,
+  .homm5-spellbook-grid,
+  .homm5-chest-choices {
+    grid-template-columns: 1fr;
+  }
+  .homm5-inspect-body {
+    flex-direction: column;
+    align-items: center;
+  }
+}

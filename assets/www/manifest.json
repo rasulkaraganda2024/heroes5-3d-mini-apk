@@ -1,0 +1,27 @@
+{
+  "name": "Герои Меча и Магии V: 3D Мини",
+  "short_name": "Герои 5 3D",
+  "description": "Объёмная тактическая 3D-игра на русском языке: парящий замок 360°, долина приключений, пошаговая арена 10×8 и шкала инициативы ATB.",
+  "lang": "ru-RU",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#070b16",
+  "theme_color": "#0f172a",
+  "categories": ["games", "strategy"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

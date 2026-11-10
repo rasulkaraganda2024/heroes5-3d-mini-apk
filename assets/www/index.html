@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Герои 5 3D" />
+  <meta name="description" content="Герои Меча и Магии V: Эпоха Грифонов — объёмная тактическая 3D-игра на русском языке с живой шкалой инициативы ATB." />
+  <title>Герои Меча и Магии V: Эпоха Грифонов — 3D Мини</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="css/homm5_royal.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
+      background: radial-gradient(circle at center, #111b33 0%, #060913 100%);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      color: #f8fafc;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #app-root {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+    }
+    #canvas-3d-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      cursor: grab;
+      touch-action: none;
+    }
+    #canvas-3d-container:active {
+      cursor: grabbing;
+    }
+    #ui-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #boot-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 35%, #19284c 0%, #070b16 80%);
+      border: 3px solid rgba(212, 175, 55, 0.45);
+      transition: opacity 0.45s ease, visibility 0.45s ease;
+    }
+    #boot-splash.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .splash-crest {
+      font-size: 64px;
+      margin-bottom: 12px;
+      filter: drop-shadow(0 0 24px rgba(251, 191, 36, 0.75));
+    }
+    .splash-title {
+      font-family: 'Georgia', 'Palatino Linotype', serif;
+      font-size: clamp(20px, 3.2vw, 36px);
+      color: #fef08a;
+      text-align: center;
+      letter-spacing: 0.04em;
+      text-shadow: 0 3px 16px rgba(0, 0, 0, 0.9);
+      margin: 0 16px 8px;
+    }
+    .splash-sub {
+      color: #cbd5e1;
+      font-size: 14px;
+      margin-bottom: 24px;
+      text-align: center;
+      max-width: 560px;
+      padding: 0 16px;
+    }
+    .splash-bar-wrap {
+      width: min(340px, 80vw);
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(212, 175, 55, 0.6);
+      overflow: hidden;
+    }
+    .splash-bar-fill {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, #ca8a04, #fde047, #f59e0b);
+      animation: pulseLoad 1.1s ease-in-out infinite alternate;
+    }
+    @keyframes pulseLoad {
+      from { opacity: 0.65; transform: scaleX(0.85); }
+      to { opacity: 1; transform: scaleX(1); }
+    }
+  </style>
+</head>
+<body oncontextmenu="return false;">
+  <div id="boot-splash">
+    <div class="splash-crest">🦅⚔️👑</div>
+    <h1 class="splash-title">ГЕРОИ МЕЧА И МАГИИ V: ЭПОХА ГРИФОНОВ</h1>
+    <div class="splash-sub">Объёмное тактическое 3D Web/Mobile приложение • Орден Порядка против Легионов Шио • Шкала ATB</div>
+    <div class="splash-bar-wrap"><div class="splash-bar-fill"></div></div>
+  </div>
+
+  <div id="app-root">
+    <div id="canvas-3d-container" aria-label="3D мир Асхана"></div>
+    <div id="ui-layer"></div>
+  </div>
+
+  <!-- 1. Локальное ядро Three.js WebGL (100% оффлайн с CDN-резервом) -->
+  <script src="js/vendor/three.min.js"></script>
+  <script>
+    if (typeof window.THREE === 'undefined') {
+      document.write('<scr' + 'ipt src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/scr' + 'ipt>');
+    }
+  </script>
+
+  <!-- 2. Изолированные модули роя агентов (1 файл = 1 агент) -->
+  <script src="js/homm5_contract.js"></script>
+  <script src="js/tactical_atb_core.js"></script>
+  <script src="js/world3d_engine.js"></script>
+  <script src="js/ui_audio_save_ru.js"></script>
+
+  <!-- 3. Диспетчер запуска Lead Architect + Регистрация оффлайн PWA Service Worker -->
+  <script>
+    (function bootstrapHoMM5Mini() {
+      'use strict';
+
+      if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('./sw.js').catch(function (err) {
+            console.warn('[PWA SW]', err);
+          });
+        });
+      }
+
+      function startApp() {
+        try {
+          var H = window.HOMM5;
+          if (!H || !H.CombatCore || !H.World3D || !H.UI) {
+            throw new Error('Не все модули HOMM5 загружены корректно.');
+          }
+
+          var container3D = document.getElementById('canvas-3d-container');
+          var uiRoot = document.getElementById('ui-layer');
+
+          if (H.SaveV3 && typeof H.SaveV3.initSaveSystem === 'function') {
+            H.SaveV3.initSaveSystem();
+          } else if (typeof H.CombatCore.getCampaignState === 'function') {
+            H.CombatCore.getCampaignState();
+          }
+
+          H.World3D.init(container3D);
+          H.UI.init(uiRoot);
+
+          var state = H.CombatCore.getCampaignState();
+          if (typeof H.World3D.syncCampaignState === 'function') {
+            H.World3D.syncCampaignState(state);
+          }
+          H.World3D.setMode('castle');
+
+          var splash = document.getElementById('boot-splash');
+          if (splash) {
+            setTimeout(function () {
+              splash.classList.add('hidden');
+            }, 320);
+          }
+        } catch (err) {
+          console.error('[HoMM5 Bootstrap Error]', err);
+          var splashSub = document.querySelector('.splash-sub');
+          if (splashSub) {
+            splashSub.textContent = 'Ошибка инициализации 3D-сцены: ' + err.message;
+            splashSub.style.color = '#f87171';
+          }
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startApp);
+      } else {
+        startApp();
+      }
+    })();
+  </script>
+</body>
+</html>
