@@ -1,4 +1,4 @@
-const CACHE_NAME = 'homm5-3d-mini-pwa-v1';
+const CACHE_NAME = 'homm5-3d-mini-pwa-v2';
 const CORE_ASSETS = [
   './',
   './index.html',

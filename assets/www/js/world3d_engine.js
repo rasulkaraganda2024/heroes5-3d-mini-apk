@@ -337,29 +337,62 @@
     const THREE = root.THREE;
     const canvas = document.createElement('canvas');
     canvas.width = 512;
-    canvas.height = 112;
+    canvas.height = 128;
     const ctx = canvas.getContext('2d');
 
-    ctx.fillStyle = 'rgba(10, 19, 38, 0.86)';
+    const grad = ctx.createLinearGradient(0, 14, 0, 110);
+    grad.addColorStop(0, 'rgba(13, 25, 48, 0.94)');
+    grad.addColorStop(1, 'rgba(7, 13, 28, 0.96)');
+    ctx.fillStyle = grad;
     ctx.strokeStyle = borderHex || '#fbbf24';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 5.5;
     ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(12, 14, 488, 84, 20) : ctx.rect(12, 14, 488, 84);
+    if (ctx.roundRect) {
+      ctx.roundRect(14, 14, 484, 96, 28);
+    } else {
+      ctx.rect(14, 14, 484, 96);
+    }
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = 'bold 32px Georgia, serif';
+    // Тонкая внутренняя филигранная рамка
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(22, 22, 468, 80, 22);
+    } else {
+      ctx.rect(22, 22, 468, 80);
+    }
+    ctx.stroke();
+
+    ctx.font = 'bold 34px Georgia, serif';
     ctx.fillStyle = '#fef3c7';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+    ctx.shadowBlur = 6;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 256, 56);
+    ctx.fillText(text, 256, 63);
 
     const tex = new THREE.CanvasTexture(canvas);
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const spr = new THREE.Sprite(mat);
-    spr.scale.set(scaleW || 5.2, scaleH || 1.15, 1);
-    spr.renderOrder = 15;
+    spr.scale.set(scaleW || 5.2, scaleH || 1.25, 1);
+    spr.renderOrder = 18;
     return spr;
+  }
+
+  function createInvisibleTouchHitbox(radius) {
+    const THREE = root.THREE;
+    const hitMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false
+    });
+    const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius || 2.35, 8, 8), hitMat);
+    sphere.userData.isHitbox = true;
+    return sphere;
   }
 
   function initMaterials() {
@@ -394,10 +427,15 @@
     };
   }
 
-  function tagInteractive(rootObj, tagType, payloadId) {
+  function tagInteractive(rootObj, tagType, payloadId, extraData) {
     rootObj.traverse((child) => {
       child.userData.hommType = tagType;
       child.userData.hommId = payloadId;
+      if (extraData) {
+        Object.keys(extraData).forEach((k) => {
+          child.userData[k] = extraData[k];
+        });
+      }
     });
   }
 
@@ -602,18 +640,37 @@
     // --- Б. 4 Интерактивных здания замка из контракта ---
     state.buildingsMap = {};
 
+    const BUILDING_SHORT_EMBLEMS = {
+      barracks: '🛡️ Казармы',
+      marksmen_tower: '🏹 Башня',
+      griffin_bastion: '🦅 Бастион',
+      cathedral_of_light: '⚔️ Собор'
+    };
+
     function registerBuilding(id, posX, posZ, builderFn) {
       const grp = new THREE.Group();
       grp.position.set(posX, 0.7, posZ);
       const record = { id, group: grp, windows: [], halos: [], flags: [], built: false };
       builderFn(grp, record);
-      const cfg = (HOMM5.CONFIG && HOMM5.CONFIG.BUILDINGS && HOMM5.CONFIG.BUILDINGS[id]) || { name: id };
-      const label = createTextBannerSprite(cfg.name, '#fbbf24', 4.5, 0.98);
-      label.position.set(0, record.labelY || 5.2, 0);
+      const cfg = (HOMM5.CONFIG && HOMM5.CONFIG.BUILDINGS && HOMM5.CONFIG.BUILDINGS[id]) || { name: id, icon: '🏰' };
+      const emblemText = BUILDING_SHORT_EMBLEMS[id] || `${cfg.icon || '🏰'} ${cfg.name}`;
+      const labelY = record.labelY || 5.2;
+
+      const label = createTextBannerSprite(emblemText, '#fbbf24', 5.0, 1.22);
+      label.position.set(0, labelY, 0);
       grp.add(label);
       record.label = label;
 
-      tagInteractive(grp, 'building', id);
+      // Увеличенные невидимые сферические хитбоксы для лёгкого тапа пальцем на смартфоне (и по зданию, и по эмблеме)
+      const bodyHitbox = createInvisibleTouchHitbox(2.75);
+      bodyHitbox.position.set(0, Math.min(3.2, labelY * 0.5), 0);
+      grp.add(bodyHitbox);
+
+      const emblemHitbox = createInvisibleTouchHitbox(2.25);
+      emblemHitbox.position.set(0, labelY, 0);
+      grp.add(emblemHitbox);
+
+      tagInteractive(grp, 'building', id, { buildingId: id });
       state.castleGroup.add(grp);
       state.buildingsMap[id] = record;
     }
@@ -877,11 +934,28 @@
       runePlate.position.y = 0.14;
       nGrp.add(runePlate);
 
-      const banner = createTextBannerSprite(`${nCfg.icon || ''} ${nCfg.name}`, ringColor, 5.6, 1.15);
+      const NODE_SHORT_TITLES = {
+        chest_1: '💰 Сундук Ордена',
+        crystal_shrine: '💎 Жила Кристаллов',
+        mission_1: '⚔️ Миссия I: Застава',
+        mission_2: '🔥 Миссия II: Руины',
+        mission_3: '👹 Миссия III: Аграил'
+      };
+      const bannerTitle = NODE_SHORT_TITLES[nCfg.id] || `${nCfg.icon || ''} ${nCfg.name}`;
+      const banner = createTextBannerSprite(bannerTitle, ringColor, 5.6, 1.28);
       banner.position.set(0, 3.65, 0);
       nGrp.add(banner);
 
-      tagInteractive(nGrp, 'node', nCfg.id);
+      // Увеличенные невидимые сферические хитбоксы для безошибочного нажатия пальцем на мобильном
+      const nodeHitbox = createInvisibleTouchHitbox(2.75);
+      nodeHitbox.position.set(0, 1.45, 0);
+      nGrp.add(nodeHitbox);
+
+      const bannerHitbox = createInvisibleTouchHitbox(2.25);
+      bannerHitbox.position.set(0, 3.65, 0);
+      nGrp.add(bannerHitbox);
+
+      tagInteractive(nGrp, 'node', nCfg.id, { nodeId: nCfg.id });
       state.valleyGroup.add(nGrp);
       state.valleyNodesMap[nCfg.id] = {
         id: nCfg.id,
@@ -1263,10 +1337,21 @@
       `${heroCfg.icon} ${heroCfg.name}`,
       isHaven ? '#fbbf24' : '#ef4444',
       4.8,
-      0.98
+      1.08
     );
     tag.position.set(0, 3.85, 0);
     grp.add(tag);
+
+    // Удобный сферический хитбокс для тапа по Герою на постаменте
+    const heroHitbox = createInvisibleTouchHitbox(2.35);
+    heroHitbox.position.set(0, 1.85, 0);
+    grp.add(heroHitbox);
+
+    const heroId = isHaven ? 'hero_player' : 'hero_enemy';
+    const side = isHaven ? 'player' : 'enemy';
+    grp.userData.heroId = heroId;
+    grp.userData.side = side;
+    tagInteractive(grp, 'hero', heroId, { heroId, side });
 
     return grp;
   }
@@ -1364,12 +1449,22 @@
     built.group.add(buffHalo);
 
     const stackId = stack.id || stack.stackId;
-    tagInteractive(built.group, 'unit', stackId);
+    const unitSide = isEnemy ? 'enemy' : 'player';
+
+    // Невидимая сфера-хитбокс вокруг отряда для удобного тапа на смартфоне
+    const unitHitbox = createInvisibleTouchHitbox(1.18);
+    unitHitbox.position.set(0, 1.05, 0);
+    built.group.add(unitHitbox);
+
+    built.group.userData.stackId = stackId;
+    built.group.userData.side = unitSide;
+    tagInteractive(built.group, 'unit', stackId, { stackId, side: unitSide });
 
     const unitCfg = (HOMM5.CONFIG.UNITS && HOMM5.CONFIG.UNITS[stack.unitId]) || {};
     return {
       id: stackId,
       unitId: stack.unitId,
+      side: unitSide,
       isEnemy,
       isFlying: Boolean(stack.isFlying || unitCfg.isFlying),
       isRanged: Boolean(stack.isRanged || unitCfg.isRanged),
@@ -1383,6 +1478,7 @@
       lastSignature: '',
       col: stack.col || 0,
       row: stack.row || 0,
+      count: stack.count || 0,
       animBusy: false,
       phaseOffset: Math.random() * Math.PI * 2
     };
@@ -1555,10 +1651,12 @@
       if (!actor) return;
 
       if (st.count <= 0 || st.dead) {
+        actor.count = 0;
         actor.group.visible = false;
         return;
       }
 
+      actor.count = st.count;
       actor.group.visible = true;
       actor.col = st.col;
       actor.row = st.row;
@@ -2222,8 +2320,71 @@
   }
 
   // ============================================================================
-  // 7. ОБРАБОТКА ВВОДА (МЫШЬ, ОРБИТА 360°, ЗУМ, РЕЙКАСТ, ПКМ И ДОЛГИЙ ТАП)
+  // 7. ПРОСТРАНСТВЕННЫЕ КООРДИНАТЫ И ВВОД (RADIAL MENU, EMPTY TAP, CAMERA FADE)
   // ============================================================================
+
+  function getActorScreenPosition(actorId) {
+    const fallbackW = (state.container && state.container.clientWidth) || root.innerWidth || 1280;
+    const fallbackH = (state.container && state.container.clientHeight) || root.innerHeight || 720;
+    const fallback = { x: Math.round(fallbackW * 0.5), y: Math.round(fallbackH * 0.5) };
+
+    if (!state.initialized || !hasThree() || !state.camera || !state.renderer) {
+      return fallback;
+    }
+
+    const THREE = root.THREE;
+    const worldVec = new THREE.Vector3();
+    let found = false;
+
+    if (actorId === 'hero_player' || actorId === 'haven_lord') {
+      if (state.heroModels.player) {
+        state.heroModels.player.getWorldPosition(worldVec);
+        worldVec.y += 1.5;
+        found = true;
+      }
+    } else if (actorId === 'hero_enemy' || actorId === 'inferno_lord') {
+      if (state.heroModels.enemy) {
+        state.heroModels.enemy.getWorldPosition(worldVec);
+        worldVec.y += 1.5;
+        found = true;
+      }
+    } else if (actorId && state.unitActors[actorId] && state.unitActors[actorId].group.visible) {
+      state.unitActors[actorId].group.getWorldPosition(worldVec);
+      worldVec.y += 1.2;
+      found = true;
+    }
+
+    if (!found) return fallback;
+
+    worldVec.project(state.camera);
+    const width = Math.max(1, (state.container && state.container.clientWidth) || state.renderer.domElement.clientWidth || fallbackW);
+    const height = Math.max(1, (state.container && state.container.clientHeight) || state.renderer.domElement.clientHeight || fallbackH);
+
+    return {
+      x: Math.round((worldVec.x * 0.5 + 0.5) * width),
+      y: Math.round((-worldVec.y * 0.5 + 0.5) * height)
+    };
+  }
+
+  function findAliveActorAtCell(col, row) {
+    const actors = Object.values(state.unitActors);
+    for (let i = 0; i < actors.length; i++) {
+      const a = actors[i];
+      if (a && a.group && a.group.visible && a.count > 0 && a.col === col && a.row === row) {
+        return a;
+      }
+    }
+    return null;
+  }
+
+  function isObjectChainVisible(obj) {
+    let cur = obj;
+    while (cur) {
+      if (cur.visible === false) return false;
+      cur = cur.parent;
+    }
+    return true;
+  }
 
   function bindInputEvents(domEl) {
     let pointerDown = false;
@@ -2233,7 +2394,16 @@
     let lastX = 0;
     let lastY = 0;
     let dragged = false;
+    let cameraManipActive = false;
+    let wheelManipTimer = null;
     let longPressTimer = null;
+
+    const setCameraManipulating = (active) => {
+      const flag = Boolean(active);
+      if (cameraManipActive === flag) return;
+      cameraManipActive = flag;
+      HOMM5.Bus.emit('3d:cameraManipulating', { active: flag });
+    };
 
     const updateMouseNDC = (clientX, clientY) => {
       const rect = domEl.getBoundingClientRect();
@@ -2244,16 +2414,128 @@
     const pickSceneObject = (clientX, clientY) => {
       updateMouseNDC(clientX, clientY);
       state.raycaster.setFromCamera(state.mouseNDC, state.camera);
-      const rootTargets = state.mode === 'combat' ? [state.combatGroup] : [state.castleWorldGroup];
-      const hits = state.raycaster.intersectObjects(rootTargets, true);
-      for (let i = 0; i < hits.length; i++) {
-        const obj = hits[i].object;
-        if (!obj.visible) continue;
-        if (obj.userData && obj.userData.hommType) {
+
+      if (state.mode === 'combat') {
+        // Приоритет 1: 3D-группы Героев на постаментах
+        const heroRoots = [state.heroModels.player, state.heroModels.enemy].filter(Boolean);
+        if (heroRoots.length > 0) {
+          const heroHits = state.raycaster.intersectObjects(heroRoots, true);
+          for (let i = 0; i < heroHits.length; i++) {
+            const obj = heroHits[i].object;
+            if (!isObjectChainVisible(obj)) continue;
+            if (obj.userData && obj.userData.hommType === 'hero') {
+              return obj.userData;
+            }
+          }
+        }
+
+        // Приоритет 2: живые отряды и клетки арены 10x8
+        const combatHits = state.raycaster.intersectObjects([state.combatGroup], true);
+        let firstCellHit = null;
+        for (let i = 0; i < combatHits.length; i++) {
+          const obj = combatHits[i].object;
+          if (!isObjectChainVisible(obj)) continue;
+          const ud = obj.userData;
+          if (!ud || !ud.hommType) continue;
+          if (ud.hommType === 'unit') {
+            const act = state.unitActors[ud.hommId];
+            if (act && act.group.visible && act.count > 0) {
+              return ud;
+            }
+          } else if (ud.hommType === 'cell' && !firstCellHit) {
+            firstCellHit = ud;
+          }
+        }
+        return firstCellHit;
+      }
+
+      // Режимы 'castle' и 'valley': проверяем только интерактивные здания и узлы долины
+      const worldHits = state.raycaster.intersectObjects([state.castleWorldGroup], true);
+      for (let i = 0; i < worldHits.length; i++) {
+        const obj = worldHits[i].object;
+        if (!isObjectChainVisible(obj)) continue;
+        if (obj.userData && (obj.userData.hommType === 'building' || obj.userData.hommType === 'node')) {
           return obj.userData;
         }
       }
       return null;
+    };
+
+    const dispatchSpatialTap = (clientX, clientY) => {
+      const picked = pickSceneObject(clientX, clientY);
+
+      if (state.mode === 'combat') {
+        if (picked && picked.hommType === 'hero') {
+          HOMM5.Bus.emit('3d:heroTap', {
+            heroId: picked.heroId || picked.hommId,
+            side: picked.side || 'player',
+            screenX: clientX,
+            screenY: clientY
+          });
+          return;
+        }
+
+        if (picked && (picked.hommType === 'unit' || picked.hommType === 'cell')) {
+          let col = picked.col;
+          let row = picked.row;
+          let aliveActor = null;
+
+          if (picked.hommType === 'unit') {
+            aliveActor = state.unitActors[picked.hommId] || null;
+            if (aliveActor) {
+              col = aliveActor.col;
+              row = aliveActor.row;
+            }
+          }
+          if (!aliveActor && col !== undefined && row !== undefined) {
+            aliveActor = findAliveActorAtCell(col, row);
+          }
+
+          const tappedStackId = aliveActor ? aliveActor.id : null;
+          if (aliveActor) {
+            HOMM5.Bus.emit('3d:actorTap', {
+              stackId: aliveActor.id,
+              col,
+              row,
+              side: aliveActor.side || (aliveActor.isEnemy ? 'enemy' : 'player'),
+              screenX: clientX,
+              screenY: clientY
+            });
+          }
+
+          if (col !== undefined && row !== undefined) {
+            HOMM5.Bus.emit('3d:cellClick', {
+              col,
+              row,
+              screenX: clientX,
+              screenY: clientY,
+              tappedStackId
+            });
+          }
+          return;
+        }
+
+        // Тап в пустое небо / за край арены
+        HOMM5.Bus.emit('3d:emptyTap', { mode: state.mode });
+        return;
+      }
+
+      // Режимы 'castle' и 'valley'
+      if (picked && picked.hommType === 'building') {
+        HOMM5.Bus.emit('3d:buildingClick', {
+          buildingId: picked.hommId,
+          screenX: clientX,
+          screenY: clientY
+        });
+      } else if (picked && picked.hommType === 'node') {
+        HOMM5.Bus.emit('3d:nodeClick', {
+          nodeId: picked.hommId,
+          screenX: clientX,
+          screenY: clientY
+        });
+      } else {
+        HOMM5.Bus.emit('3d:emptyTap', { mode: state.mode });
+      }
     };
 
     domEl.addEventListener('contextmenu', (e) => {
@@ -2261,6 +2543,13 @@
       const picked = pickSceneObject(e.clientX, e.clientY);
       if (picked && picked.hommType === 'unit') {
         HOMM5.Bus.emit('3d:unitInspect', { stackId: picked.hommId });
+      } else if (picked && picked.hommType === 'hero') {
+        HOMM5.Bus.emit('3d:heroTap', {
+          heroId: picked.heroId || picked.hommId,
+          side: picked.side || 'player',
+          screenX: e.clientX,
+          screenY: e.clientY
+        });
       } else if (picked && picked.hommType === 'building') {
         HOMM5.Bus.emit('3d:buildingClick', { buildingId: picked.hommId });
       }
@@ -2282,10 +2571,14 @@
         const dy = e.clientY - lastY;
         lastX = e.clientX;
         lastY = e.clientY;
-        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
+        const distFromStart = Math.hypot(e.clientX - startX, e.clientY - startY);
+        if (distFromStart > 8) {
+          setCameraManipulating(true);
+        }
+        if (distFromStart > 10) {
           dragged = true;
         }
-        if (dragged) {
+        if (distFromStart > 8) {
           state.desiredSpherical.theta -= dx * 0.0075;
           state.desiredSpherical.phi = clamp(state.desiredSpherical.phi - dy * 0.0065, 0.38, 1.42);
         }
@@ -2309,7 +2602,12 @@
         const key = hCol !== null ? `${hCol},${hRow}` : null;
         if (state.hoveredCell !== key && hCol !== null) {
           state.hoveredCell = key;
-          HOMM5.Bus.emit('3d:cellHover', { col: hCol, row: hRow });
+          HOMM5.Bus.emit('3d:cellHover', {
+            col: hCol,
+            row: hRow,
+            screenX: e.clientX,
+            screenY: e.clientY
+          });
         }
       }
     });
@@ -2318,27 +2616,22 @@
       if (!pointerDown) return;
       pointerDown = false;
       state.userInteracting = false;
+      setCameraManipulating(false);
 
-      if (!dragged && e.button === 0 && e.target === domEl) {
-        const picked = pickSceneObject(e.clientX, e.clientY);
-        if (!picked) return;
-        if (picked.hommType === 'building') {
-          HOMM5.Bus.emit('3d:buildingClick', { buildingId: picked.hommId });
-        } else if (picked.hommType === 'node') {
-          HOMM5.Bus.emit('3d:nodeClick', { nodeId: picked.hommId });
-        } else if (picked.hommType === 'cell') {
-          HOMM5.Bus.emit('3d:cellClick', { col: picked.col, row: picked.row });
-        } else if (picked.hommType === 'unit') {
-          const act = state.unitActors[picked.hommId];
-          if (act) {
-            HOMM5.Bus.emit('3d:cellClick', { col: act.col, row: act.row });
-          }
-        }
+      const moveDist = Math.hypot(e.clientX - startX, e.clientY - startY);
+      if (!dragged && moveDist <= 10 && e.button === 0 && e.target === domEl) {
+        dispatchSpatialTap(e.clientX, e.clientY);
       }
     });
 
     domEl.addEventListener('wheel', (e) => {
       e.preventDefault();
+      setCameraManipulating(true);
+      clearTimeout(wheelManipTimer);
+      wheelManipTimer = setTimeout(() => {
+        if (!pointerDown) setCameraManipulating(false);
+      }, 220);
+
       const preset = MODE_PRESETS[state.mode] || MODE_PRESETS.castle;
       const maxRad = preset.maxRadius * getPortraitRadiusScale(getViewportAspect());
       state.desiredSpherical.radius = clamp(
@@ -2349,8 +2642,8 @@
     }, { passive: false });
 
     // Сенсорное управление iOS / Android:
-    // - 1 палец: плавное вращение орбиты / одиночный тап (если сдвиг <= 10px) / долгий тап осмотра существа с виброоткликом
-    // - 2 пальца: мультитач Pinch-to-Zoom масштабирования камеры (блокирует одиночный клик/вращение)
+    // - 1 палец: плавное вращение орбиты / одиночный тап (если сдвиг < 10px) / долгий тап осмотра существа с виброоткликом
+    // - 2 пальца: мультитач Pinch-to-Zoom масштабирования камеры + сигнал 3d:cameraManipulating
     let isPinching = false;
     let pinchLastDist = 0;
 
@@ -2366,6 +2659,7 @@
         pointerDown = false;
         dragged = true; // блокируем ложный одиночный тап после завершения зума двумя пальцами
         pinchLastDist = getTouchDist(e.touches[0], e.touches[1]);
+        setCameraManipulating(true);
         return;
       }
 
@@ -2398,6 +2692,7 @@
         clearTimeout(longPressTimer);
         isPinching = true;
         dragged = true;
+        setCameraManipulating(true);
         const dist = getTouchDist(e.touches[0], e.touches[1]);
         if (pinchLastDist > 0) {
           const deltaDist = pinchLastDist - dist;
@@ -2420,12 +2715,16 @@
       lastX = t.clientX;
       lastY = t.clientY;
 
-      // Защита от ложного тапа при вращении камеры: порог > 10px
-      if (Math.hypot(t.clientX - startX, t.clientY - startY) > 10) {
+      const distFromStart = Math.hypot(t.clientX - startX, t.clientY - startY);
+      if (distFromStart > 8) {
+        setCameraManipulating(true);
+      }
+      // Защита от ложного тапа при вращении камеры: порог >= 10px
+      if (distFromStart >= 10) {
         dragged = true;
         clearTimeout(longPressTimer);
       }
-      if (dragged) {
+      if (distFromStart > 8) {
         state.desiredSpherical.theta -= dx * 0.008;
         state.desiredSpherical.phi = clamp(state.desiredSpherical.phi - dy * 0.007, 0.4, 1.42);
       }
@@ -2436,6 +2735,7 @@
 
       if (e.touches.length === 0) {
         state.userInteracting = false;
+        setCameraManipulating(false);
       }
 
       if (isPinching) {
@@ -2454,19 +2754,8 @@
 
       if (!dragged && e.changedTouches && e.changedTouches.length > 0) {
         const t = e.changedTouches[0];
-        if (Math.hypot(t.clientX - startX, t.clientY - startY) > 10) return;
-        const picked = pickSceneObject(t.clientX, t.clientY);
-        if (!picked) return;
-        if (picked.hommType === 'building') {
-          HOMM5.Bus.emit('3d:buildingClick', { buildingId: picked.hommId });
-        } else if (picked.hommType === 'node') {
-          HOMM5.Bus.emit('3d:nodeClick', { nodeId: picked.hommId });
-        } else if (picked.hommType === 'cell') {
-          HOMM5.Bus.emit('3d:cellClick', { col: picked.col, row: picked.row });
-        } else if (picked.hommType === 'unit') {
-          const act = state.unitActors[picked.hommId];
-          if (act) HOMM5.Bus.emit('3d:cellClick', { col: act.col, row: act.row });
-        }
+        if (Math.hypot(t.clientX - startX, t.clientY - startY) >= 10) return;
+        dispatchSpatialTap(t.clientX, t.clientY);
       }
     }, { passive: true });
 
@@ -2476,6 +2765,7 @@
       pinchLastDist = 0;
       pointerDown = false;
       state.userInteracting = false;
+      setCameraManipulating(false);
     }, { passive: true });
   }
 
@@ -2756,6 +3046,7 @@
     highlightCells,
     playUnitMove,
     playAttackAnim,
-    playSpellFX
+    playSpellFX,
+    getActorScreenPosition
   };
 })(typeof window !== 'undefined' ? window : globalThis);

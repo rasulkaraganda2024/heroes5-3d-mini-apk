@@ -873,6 +873,60 @@
     targetingHeroStrike: false,
     _aiTimer: null,
     elements: {},
+    isMinimalHud: false,
+    isBottomSheetOpen: false,
+    currentSheet: null,
+    radialTargetStackId: null,
+
+    formatGoldMicro(val) {
+      val = Number(val) || 0;
+      if (val >= 1000) {
+        const k = (val / 1000).toFixed(1);
+        return (k.endsWith('.0') ? k.slice(0, -2) : k) + 'k';
+      }
+      return val.toString();
+    },
+
+    initHUDMode() {
+      let saved = null;
+      try {
+        if (typeof localStorage !== 'undefined') {
+          saved = localStorage.getItem('homm5_hud_mode');
+        }
+      } catch {}
+
+      if (saved === 'classic') {
+        this.isMinimalHud = false;
+      } else if (saved === 'minimal') {
+        this.isMinimalHud = true;
+      } else {
+        this.isMinimalHud = (typeof window !== 'undefined' && window.innerWidth < 1024);
+      }
+      this.applyHUDMode();
+    },
+
+    setHUDMode(isMinimal) {
+      this.isMinimalHud = !!isMinimal;
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('homm5_hud_mode', this.isMinimalHud ? 'minimal' : 'classic');
+        }
+      } catch {}
+      this.applyHUDMode();
+      if (this.isBottomSheetOpen && this.currentSheet === 'settings') {
+        this.renderSettingsSheet();
+      }
+    },
+
+    applyHUDMode() {
+      const layer = document.getElementById('ui-layer');
+      if (!layer) return;
+      if (this.isMinimalHud) {
+        layer.classList.add('hud-minimal');
+      } else {
+        layer.classList.remove('hud-minimal');
+      }
+    },
 
     /**
      * Инициализация UI. Рендерит всю разметку в контейнер uiRoot.
@@ -888,6 +942,7 @@
       }
 
       this._buildDOMElements(layer);
+      this.initHUDMode();
       this._bindGlobalEvents();
       this._subscribeToBus();
 
@@ -900,6 +955,46 @@
 
     _buildDOMElements(layer) {
       layer.innerHTML = `
+        <!-- 0. Слой пространственного Микро-HUD ≤ 4.5% для смартфонов и планшетов -->
+        <div id="micro-hud-layer" class="homm5-interactive">
+          <div id="micro-resource-pill" class="homm5-micro-pill" title="Казна Замка (Клик — обзор и миссии)">
+            <span id="micro-mode-icon">🏰</span>
+            <span>💰 <b id="micro-val-gold" class="micro-gold-val">1.7k</b></span>
+            <span>💎 <b id="micro-val-crystals" class="micro-crystal-val">3</b></span>
+          </div>
+          <button id="micro-settings-btn" class="homm5-micro-btn" title="Настройки, звук, сохранения и HUD">
+            ⚙️
+          </button>
+          <div id="micro-atb-pill" class="homm5-micro-pill homm5-hidden" title="Шкала инициативы (Клик — тактический обзор)">
+            <span id="micro-atb-current" class="micro-atb-current">🛡️ Латники</span>
+            <span class="micro-atb-divider">▶</span>
+            <div id="micro-atb-queue-icons" class="micro-atb-queue-icons"></div>
+          </div>
+        </div>
+
+        <!-- Контекстное Радиальное Меню 3D -->
+        <div id="radial-action-menu" class="radial-action-menu radial-ring-menu homm5-hidden">
+          <div class="radial-center-dot"></div>
+          <div class="radial-petals" id="radial-petals"></div>
+        </div>
+
+        <!-- Парящий прогноз урона в 3D и чип отмены магии -->
+        <div id="damage-preview-tooltip" class="damage-preview-tooltip homm5-hidden"></div>
+        <div id="targeting-cancel-chip" class="targeting-cancel-chip homm5-hidden">✕ Отмена заклинания</div>
+
+        <!-- Универсальный сапфировый мобильный Bottom Sheet ≤ 52vh -->
+        <div id="homm-bottom-sheet-backdrop" class="homm-bottom-sheet-backdrop"></div>
+        <aside id="homm-bottom-sheet" class="homm-bottom-sheet">
+          <div class="bottom-sheet-handle-wrap" id="bottom-sheet-handle-wrap">
+            <div class="bottom-sheet-handle"></div>
+          </div>
+          <div class="bottom-sheet-header-row">
+            <span class="bottom-sheet-title" id="bottom-sheet-title">🏰 Замок «Коготь Грифона»</span>
+            <button class="bottom-sheet-close-btn" id="btn-close-bottom-sheet" title="Закрыть шторку">✕</button>
+          </div>
+          <div class="bottom-sheet-content" id="bottom-sheet-content"></div>
+        </aside>
+
         <!-- 1. Верхний королевский бар -->
         <header id="homm5-top-bar" class="homm5-panel homm5-corner-decor">
           <div class="homm5-resources-group">
@@ -1038,7 +1133,23 @@
         combatLogBody: document.getElementById('combat-log-body'),
         floatingLayer: document.getElementById('homm5-floating-layer'),
         modalContainer: document.getElementById('homm5-modal-container'),
-        tooltip: document.getElementById('homm5-tooltip')
+        tooltip: document.getElementById('homm5-tooltip'),
+        microHudLayer: document.getElementById('micro-hud-layer'),
+        microResourcePill: document.getElementById('micro-resource-pill'),
+        microSettingsBtn: document.getElementById('micro-settings-btn'),
+        microAtbPill: document.getElementById('micro-atb-pill'),
+        microValGold: document.getElementById('micro-val-gold'),
+        microValCrystals: document.getElementById('micro-val-crystals'),
+        microAtbCurrent: document.getElementById('micro-atb-current'),
+        microAtbQueueIcons: document.getElementById('micro-atb-queue-icons'),
+        radialMenu: document.getElementById('radial-action-menu'),
+        radialPetals: document.getElementById('radial-petals'),
+        damagePreviewTooltip: document.getElementById('damage-preview-tooltip'),
+        targetingCancelChip: document.getElementById('targeting-cancel-chip'),
+        bottomSheet: document.getElementById('homm-bottom-sheet'),
+        bottomSheetBackdrop: document.getElementById('homm-bottom-sheet-backdrop'),
+        bottomSheetTitle: document.getElementById('bottom-sheet-title'),
+        bottomSheetContent: document.getElementById('bottom-sheet-content')
       };
     },
 
@@ -1126,6 +1237,89 @@
         }
       });
 
+      // События кнопок Микро-HUD
+      document.getElementById('micro-resource-pill')?.addEventListener('click', () => {
+        if (this.mode === 'valley') {
+          this.openBottomSheet('valley');
+        } else {
+          this.openBottomSheet('castle');
+        }
+      });
+
+      document.getElementById('micro-settings-btn')?.addEventListener('click', () => {
+        this.openBottomSheet('settings');
+      });
+
+      document.getElementById('micro-atb-pill')?.addEventListener('click', () => {
+        this.openBottomSheet('atb');
+      });
+
+      document.getElementById('targeting-cancel-chip')?.addEventListener('click', () => {
+        this.cancelTargeting();
+      });
+
+      document.getElementById('btn-close-bottom-sheet')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+      });
+
+      document.getElementById('homm-bottom-sheet-backdrop')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+      });
+
+      // Жест свайпа вниз на Bottom Sheet для закрытия (> 55px)
+      const sheet = document.getElementById('homm-bottom-sheet');
+      if (sheet) {
+        let touchStartY = 0;
+        let touchDiffY = 0;
+        sheet.addEventListener('touchstart', (e) => {
+          if (e.touches && e.touches.length > 0) {
+            touchStartY = e.touches[0].clientY;
+            touchDiffY = 0;
+          }
+        }, { passive: true });
+
+        sheet.addEventListener('touchmove', (e) => {
+          if (e.touches && e.touches.length > 0) {
+            const currentY = e.touches[0].clientY;
+            touchDiffY = currentY - touchStartY;
+            if (touchDiffY > 0) {
+              sheet.style.transform = `translateY(${touchDiffY}px)`;
+            }
+          }
+        }, { passive: true });
+
+        sheet.addEventListener('touchend', () => {
+          if (touchDiffY > 55) {
+            this.closeBottomSheet();
+          } else {
+            sheet.style.transform = '';
+          }
+          touchDiffY = 0;
+        });
+      }
+
+      // Закрытие радиального меню при клике мимо него
+      window.addEventListener('click', (e) => {
+        const radial = document.getElementById('radial-action-menu');
+        if (radial && !radial.classList.contains('homm5-hidden')) {
+          if (!radial.contains(e.target)) {
+            this.closeRadialMenu();
+          }
+        }
+      });
+
+      // Адаптивная синхронизация режима HUD при ресайзе окна
+      window.addEventListener('resize', () => {
+        let saved = null;
+        try {
+          if (typeof localStorage !== 'undefined') saved = localStorage.getItem('homm5_hud_mode');
+        } catch {}
+        if (!saved) {
+          this.isMinimalHud = window.innerWidth < 1024;
+          this.applyHUDMode();
+        }
+      });
+
       this.elements.modalContainer?.addEventListener('click', (e) => {
         if (e.target === this.elements.modalContainer) {
           this.closeModal();
@@ -1136,6 +1330,10 @@
         if (e.key === 'Escape') {
           if (this.targetingSpell || this.targetingHeroStrike) {
             this.cancelTargeting();
+            return;
+          }
+          if (this.isBottomSheetOpen) {
+            this.closeBottomSheet();
             return;
           }
           if (this.elements.modalContainer?.classList.contains('homm5-active')) {
@@ -1197,6 +1395,17 @@
             if (typeof HOMM5.World3D.syncBattleState === 'function') {
               HOMM5.World3D.syncBattleState(bState);
             }
+          }
+
+          // Авто-вызов радиального веера заклинаний и удара при наступлении хода hero_player
+          if (payload.activeActor.isHeroActor || payload.activeActor.id === 'hero_player') {
+            let hPos = null;
+            if (HOMM5.World3D && typeof HOMM5.World3D.getActorScreenPosition === 'function') {
+              hPos = HOMM5.World3D.getActorScreenPosition('hero_player');
+            }
+            const hx = (hPos && hPos.x !== undefined) ? hPos.x : (typeof window !== 'undefined' ? window.innerWidth / 2 : 400);
+            const hy = (hPos && hPos.y !== undefined) ? hPos.y : (typeof window !== 'undefined' ? window.innerHeight / 2 : 300);
+            this.openRadialMenu('hero', hx, hy, 'hero_player');
           }
         }
 
@@ -1345,8 +1554,32 @@
       });
 
       // 3. Подписка на 3D-события world3d_engine.js
+      Bus.on('3d:cameraManipulating', (payload) => {
+        const isManipulating = (typeof payload === 'boolean') ? payload : !!(payload && payload.isManipulating);
+        const hudLayer = document.getElementById('micro-hud-layer');
+        if (hudLayer) {
+          if (isManipulating) {
+            hudLayer.classList.add('hud-camera-fade');
+          } else {
+            hudLayer.classList.remove('hud-camera-fade');
+          }
+        }
+      });
+
+      Bus.on('3d:emptyTap', () => {
+        this.closeRadialMenu();
+        this.hideDamagePreview();
+        if (this.isBottomSheetOpen) {
+          this.closeBottomSheet();
+        }
+      });
+
       Bus.on('3d:buildingClick', (payload) => {
-        this.openCastleModal(payload.buildingId);
+        if (this.isMinimalHud) {
+          this.openBottomSheet('castle', payload.buildingId);
+        } else {
+          this.openCastleModal(payload.buildingId);
+        }
       });
 
       Bus.on('3d:nodeClick', (payload) => {
@@ -1371,6 +1604,43 @@
         }
       });
 
+      Bus.on('3d:actorTap', (payload) => {
+        if (this.targetingSpell || this.targetingHeroStrike) return;
+        if (!payload || !payload.stackId) return;
+        const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
+        if (!bState || bState.status !== 'active') return;
+        const stack = (bState.stacks || []).find((s) => s.id === payload.stackId && s.count > 0);
+        if (!stack || stack.side !== 'player') return;
+
+        let screenPos = null;
+        if (HOMM5.World3D && typeof HOMM5.World3D.getActorScreenPosition === 'function') {
+          screenPos = HOMM5.World3D.getActorScreenPosition(stack.id);
+        }
+        const sx = (screenPos && screenPos.x !== undefined) ? screenPos.x : (payload.screenX || (typeof window !== 'undefined' ? window.innerWidth / 2 : 400));
+        const sy = (screenPos && screenPos.y !== undefined) ? screenPos.y : (payload.screenY || (typeof window !== 'undefined' ? window.innerHeight / 2 : 300));
+
+        if (stack.id === bState.activeActorId) {
+          this.openRadialMenu('unit', sx, sy, stack.id);
+        } else {
+          this.openUnitInspectModal(stack.id);
+        }
+      });
+
+      Bus.on('3d:heroTap', (payload) => {
+        let screenPos = null;
+        if (HOMM5.World3D && typeof HOMM5.World3D.getActorScreenPosition === 'function') {
+          screenPos = HOMM5.World3D.getActorScreenPosition('hero_player');
+        }
+        const sx = (screenPos && screenPos.x !== undefined) ? screenPos.x : ((payload && payload.screenX) || (typeof window !== 'undefined' ? window.innerWidth / 2 : 400));
+        const sy = (screenPos && screenPos.y !== undefined) ? screenPos.y : ((payload && payload.screenY) || (typeof window !== 'undefined' ? window.innerHeight / 2 : 300));
+
+        this.openRadialMenu('hero', sx, sy, 'hero_player');
+      });
+
+      Bus.on('3d:cellTap', (payload) => {
+        this._handleCellTap(payload);
+      });
+
       Bus.on('3d:cellClick', (payload) => {
         this._handleCellClick(payload);
       });
@@ -1383,6 +1653,7 @@
             aoeCenter: { col: payload.col, row: payload.row }
           });
         }
+        this.updateDamagePreview(payload);
       });
 
       Bus.on('3d:unitInspect', (payload) => {
@@ -1400,20 +1671,33 @@
       this.mode = mode;
       Audio.setTheme(mode);
 
+      const modeIcon = document.getElementById('micro-mode-icon');
+      if (modeIcon) {
+        modeIcon.innerText = mode === 'castle' ? '🏰' : (mode === 'valley' ? '🗺️' : '⚔️');
+      }
+
       if (HOMM5.World3D && typeof HOMM5.World3D.setMode === 'function') {
         HOMM5.World3D.setMode(mode);
       }
 
       const combatHud = this.elements.combatHud;
       const combatLog = this.elements.combatLog;
+      const microAtbPill = document.getElementById('micro-atb-pill');
+      const uiLayer = document.getElementById('ui-layer');
 
       if (mode === 'combat') {
         combatHud?.classList.remove('homm5-hidden');
         combatLog?.classList.remove('homm5-hidden');
+        microAtbPill?.classList.remove('homm5-hidden');
+        uiLayer?.classList.add('in-combat');
         this.renderCombatLeftPanel();
       } else {
         combatHud?.classList.add('homm5-hidden');
         combatLog?.classList.add('homm5-hidden');
+        microAtbPill?.classList.add('homm5-hidden');
+        uiLayer?.classList.remove('in-combat');
+        this.hideDamagePreview();
+        this.closeRadialMenu();
 
         if (mode === 'castle') {
           this.renderCastleLeftPanel();
@@ -1441,14 +1725,27 @@
       const crystalEl = document.getElementById('val-crystals');
       const manaEl = document.getElementById('val-mana');
       const calEl = document.getElementById('val-calendar');
+      const microGoldEl = document.getElementById('micro-val-gold');
+      const microCrystalEl = document.getElementById('micro-val-crystals');
 
       if (goldEl) goldEl.innerText = Number(save.gold || 0).toLocaleString('ru-RU');
       if (crystalEl) crystalEl.innerText = Number(save.crystals || 0).toLocaleString('ru-RU');
+      if (microGoldEl) microGoldEl.innerText = this.formatGoldMicro(save.gold || 0);
+      if (microCrystalEl) microCrystalEl.innerText = (save.crystals || 0).toString();
+
       if (manaEl && save.hero) {
         manaEl.innerText = `${save.hero.mana || 0} / ${save.hero.maxMana || 50}`;
       }
       if (calEl) {
         calEl.innerText = `📅 Неделя ${save.week || 1}, День ${save.day || 1} (Неделя Грифонов)`;
+      }
+
+      if (this.isBottomSheetOpen) {
+        if (this.currentSheet === 'castle') {
+          this.renderCastleSheet();
+        } else if (this.currentSheet === 'valley') {
+          this.renderValleySheet();
+        }
       }
 
       if (this.mode === 'castle') {
@@ -1673,6 +1970,28 @@
 
       ribbon.innerHTML = html;
 
+      // Обновление полоски Micro-HUD #micro-atb-pill
+      const microCur = document.getElementById('micro-atb-current');
+      const microIcons = document.getElementById('micro-atb-queue-icons');
+      if (microCur && microIcons) {
+        const cur = displayQueue[0];
+        if (cur) {
+          const u = cur.unit || cur;
+          microCur.innerHTML = `${u.icon || '🛡️'} ${(u.name || 'Юнит').slice(0, 8)}`;
+        }
+        let iconsHtml = '';
+        displayQueue.slice(1, 4).forEach((item) => {
+          const u = item.unit || item;
+          const isHaven = u.side === 'player' || u.faction === 'haven';
+          iconsHtml += `<span class="micro-atb-mini-icon ${isHaven ? 'micro-atb-player' : 'micro-atb-enemy'}" title="${u.name}">${u.icon || '⚔️'}</span>`;
+        });
+        microIcons.innerHTML = iconsHtml;
+      }
+
+      if (this.isBottomSheetOpen && this.currentSheet === 'atb') {
+        this.renderAtbSheet();
+      }
+
       ribbon.querySelectorAll('.homm5-atb-slot').forEach((el) => {
         el.addEventListener('click', () => {
           const idx = parseInt(el.getAttribute('data-idx'), 10);
@@ -1790,6 +2109,7 @@
 
       this.targetingHeroStrike = true;
       this.targetingSpell = null;
+      this.showTargetingCancelChip();
       Audio.playSFX('click');
       this.addCombatLogEntry('🗡️ Выберите вражеский отряд кликом для удара Лорда Годрика (Escape для отмены).', 'haven');
 
@@ -1838,6 +2158,7 @@
         const targetStackId = targetStack ? targetStack.id : null;
         this.castTargetedSpell(this.targetingSpell, col, row, targetStackId);
         this.targetingSpell = null;
+        this.hideTargetingCancelChip();
         if (HOMM5.World3D && typeof HOMM5.World3D.highlightCells === 'function') {
           HOMM5.World3D.highlightCells(null);
         }
@@ -1849,6 +2170,7 @@
         const targetStack = bState.stacks.find((s) => s.count > 0 && s.side === 'enemy' && s.col === col && s.row === row);
         if (targetStack) {
           this.targetingHeroStrike = false;
+          this.hideTargetingCancelChip();
           if (HOMM5.World3D && typeof HOMM5.World3D.highlightCells === 'function') {
             HOMM5.World3D.highlightCells(null);
           }
@@ -1867,6 +2189,8 @@
       if (activeActor.isHeroActor) {
         const enemyStack = bState.stacks.find((s) => s.count > 0 && s.side === 'enemy' && s.col === col && s.row === row);
         if (enemyStack) {
+          this.hideDamagePreview();
+          this.closeRadialMenu();
           HOMM5.CombatCore.executeHeroStrike(enemyStack.id);
         }
         return;
@@ -1878,12 +2202,26 @@
         const moveCell = (targetAction.moveFromCol !== undefined && targetAction.moveFromCol !== null && targetAction.moveFromCol >= 0)
           ? { col: targetAction.moveFromCol, row: targetAction.moveFromRow }
           : (targetAction.moveCell || null);
+        this.hideDamagePreview();
+        this.closeRadialMenu();
         HOMM5.CombatCore.executeUnitAttack(targetAction.targetStackId, moveCell);
         return;
       }
 
-      const moveAction = (actions.moves || []).find((m) => m.col === col && m.row === row);
+      if (activeActor && !activeActor.isHeroActor && col === activeActor.col && row === activeActor.row) {
+        let screenPos = (HOMM5.World3D && typeof HOMM5.World3D.getActorScreenPosition === 'function')
+          ? HOMM5.World3D.getActorScreenPosition(activeActor.id)
+          : null;
+        const sx = (screenPos && screenPos.x !== undefined) ? screenPos.x : (payload.screenX || (typeof window !== 'undefined' ? window.innerWidth / 2 : 400));
+        const sy = (screenPos && screenPos.y !== undefined) ? screenPos.y : (payload.screenY || (typeof window !== 'undefined' ? window.innerHeight / 2 : 300));
+        this.openRadialMenu('unit', sx, sy, activeActor.id);
+        return;
+      }
+
+      const moveAction = (actions.moves || []).find((m) => m.col === col && m.row === row && (m.col !== activeActor.col || m.row !== activeActor.row));
       if (moveAction) {
+        this.hideDamagePreview();
+        this.closeRadialMenu();
         HOMM5.CombatCore.executeUnitMove(col, row);
       }
     },
@@ -1891,10 +2229,800 @@
     cancelTargeting() {
       this.targetingSpell = null;
       this.targetingHeroStrike = false;
+      this.hideTargetingCancelChip();
       if (HOMM5.World3D && typeof HOMM5.World3D.highlightCells === 'function') {
         HOMM5.World3D.highlightCells(null);
       }
       this.addCombatLogEntry('Прицеливание отменено.');
+    },
+
+    showTargetingCancelChip() {
+      const chip = document.getElementById('targeting-cancel-chip');
+      if (chip) chip.classList.remove('homm5-hidden');
+    },
+
+    hideTargetingCancelChip() {
+      const chip = document.getElementById('targeting-cancel-chip');
+      if (chip) chip.classList.add('homm5-hidden');
+    },
+
+    _handleCellTap(payload) {
+      if (this.targetingSpell || this.targetingHeroStrike) {
+        this._handleCellClick(payload);
+        return;
+      }
+
+      const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
+      if (bState && bState.status === 'active' && payload && payload.col !== undefined && payload.row !== undefined) {
+        // Проверяем, нажат ли союзный отряд игрока
+        const ally = (bState.stacks || []).find((s) => s.count > 0 && s.side === 'player' && s.col === payload.col && s.row === payload.row);
+        if (ally) {
+          let sx = payload.screenX;
+          let sy = payload.screenY;
+          if (sx === undefined || sy === undefined) {
+            if (HOMM5.World3D && typeof HOMM5.World3D.getActorScreenPosition === 'function') {
+              const pos = HOMM5.World3D.getActorScreenPosition(ally.id);
+              if (pos) { sx = pos.x; sy = pos.y; }
+            }
+          }
+          if (sx === undefined || sy === undefined) {
+            sx = (typeof window !== 'undefined') ? window.innerWidth / 2 : 400;
+            sy = (typeof window !== 'undefined') ? window.innerHeight / 2 : 300;
+          }
+          this.openRadialMenu('unit', sx, sy, ally.id);
+          return;
+        }
+      }
+
+      this.closeRadialMenu();
+      this._handleCellClick(payload);
+    },
+
+    updateDamagePreview(payload) {
+      const tooltip = document.getElementById('damage-preview-tooltip');
+      if (!tooltip) return;
+
+      if (this.mode !== 'combat' || !payload || payload.col === undefined || payload.row === undefined) {
+        this.hideDamagePreview();
+        return;
+      }
+
+      const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
+      if (!bState || bState.status !== 'active') {
+        this.hideDamagePreview();
+        return;
+      }
+
+      const defender = (bState.stacks || []).find((s) => s.count > 0 && s.side === 'enemy' && s.col === payload.col && s.row === payload.row);
+      if (!defender) {
+        this.hideDamagePreview();
+        return;
+      }
+
+      const activeActorId = bState.activeActorId;
+      const isHeroAiming = this.targetingHeroStrike || activeActorId === 'hero_player';
+      const attackerId = isHeroAiming ? 'hero_player' : activeActorId;
+
+      let moveDist = 0;
+      if (!isHeroAiming && HOMM5.CombatCore && typeof HOMM5.CombatCore.getValidActions === 'function') {
+        const valid = HOMM5.CombatCore.getValidActions(attackerId);
+        const targetAction = (valid.targets || []).find((t) => t.targetStackId === defender.id);
+        if (!targetAction && !this.targetingSpell) {
+          this.hideDamagePreview();
+          return;
+        }
+        moveDist = targetAction ? (targetAction.moveDist || 0) : 0;
+      }
+
+      let preview = null;
+      if (HOMM5.CombatCore && typeof HOMM5.CombatCore.estimateDamagePreview === 'function') {
+        preview = HOMM5.CombatCore.estimateDamagePreview(attackerId, defender.id, moveDist);
+      }
+
+      if (!preview || !preview.ok) {
+        this.hideDamagePreview();
+        return;
+      }
+
+      const dmgStr = preview.minDamage === preview.maxDamage
+        ? `${preview.minDamage}`
+        : `${preview.minDamage}–${preview.maxDamage}`;
+
+      const unitName = (defender.unit && defender.unit.name) || defender.name || 'воин';
+      const killsStr = preview.minKills === preview.maxKills
+        ? (preview.minKills > 0 ? `${preview.minKills}` : '0')
+        : `${preview.minKills}..${preview.maxKills}`;
+
+      const text = `«⚔️ ${dmgStr} (−${killsStr} воинов)» (ОЗ: ${defender.topHp}/${defender.maxHp})`;
+      tooltip.innerHTML = text;
+
+      // Определение экранной позиции тултипа рядом с врагом
+      let screenX = payload.screenX;
+      let screenY = payload.screenY;
+      if (screenX === undefined || screenY === undefined) {
+        if (HOMM5.World3D && typeof HOMM5.World3D.getActorScreenPosition === 'function') {
+          const pos = HOMM5.World3D.getActorScreenPosition(defender.id);
+          if (pos) {
+            screenX = pos.x;
+            screenY = pos.y;
+          }
+        }
+      }
+
+      const w = (typeof window !== 'undefined') ? window.innerWidth : 800;
+      const h = (typeof window !== 'undefined') ? window.innerHeight : 600;
+
+      if (screenX !== undefined && screenY !== undefined) {
+        screenX = Math.max(90, Math.min(w - 90, screenX));
+        screenY = Math.max(50, Math.min(h - 40, screenY - 16));
+        tooltip.style.left = `${Math.round(screenX)}px`;
+        tooltip.style.top = `${Math.round(screenY)}px`;
+      } else {
+        tooltip.style.left = '50%';
+        tooltip.style.top = '35%';
+      }
+
+      tooltip.classList.remove('homm5-hidden');
+      tooltip.style.display = 'block';
+    },
+
+    hideDamagePreview() {
+      const tooltip = document.getElementById('damage-preview-tooltip');
+      if (tooltip) {
+        tooltip.classList.add('homm5-hidden');
+        tooltip.style.display = 'none';
+      }
+    },
+
+    openRadialMenu(type, screenX, screenY, stackId) {
+      const menu = document.getElementById('radial-action-menu');
+      const petalsContainer = document.getElementById('radial-petals');
+      if (!menu || !petalsContainer) return;
+
+      this.radialTargetStackId = stackId;
+      Audio.playSFX('click');
+
+      const w = (typeof window !== 'undefined') ? window.innerWidth : 800;
+      const h = (typeof window !== 'undefined') ? window.innerHeight : 600;
+
+      // Ограничение clamp внутри границ экрана (46x46 px кнопки + радиус 64px)
+      screenX = Math.max(76, Math.min(w - 76, Number(screenX) || (w / 2)));
+      screenY = Math.max(76, Math.min(h - 76, Number(screenY) || (h / 2)));
+
+      menu.style.left = `${Math.round(screenX)}px`;
+      menu.style.top = `${Math.round(screenY)}px`;
+
+      petalsContainer.innerHTML = '';
+
+      if (type === 'hero') {
+        // 6 лепестков вокруг Героя (веер действий и заклинаний)
+        const petals = [
+          { id: 'strike', icon: '🗡️', label: 'Удар', dx: 0, dy: -64, action: () => this.executeHeroStrike() },
+          { id: 'might', icon: '✨', label: 'Кара', dx: 55, dy: -32, action: () => this.prepareSpell('righteous_might') },
+          { id: 'shield', icon: '🛡️', label: 'Щит', dx: 55, dy: 32, action: () => this.prepareSpell('divine_shield') },
+          { id: 'heal', icon: '💖', label: 'Свет', dx: 0, dy: 64, action: () => this.prepareSpell('holy_light') },
+          { id: 'fireball', icon: '☄️', label: 'Шар', dx: -55, dy: 32, action: () => this.prepareSpell('fireball') },
+          { id: 'wait', icon: '⏳', label: 'Пауза', dx: -55, dy: -32, action: () => this.executeAction('wait') }
+        ];
+
+        petals.forEach((p, idx) => {
+          const btn = document.createElement('button');
+          btn.className = 'radial-btn';
+          btn.style.left = `${p.dx}px`;
+          btn.style.top = `${p.dy}px`;
+          btn.style.animationDelay = `${idx * 0.03}s`;
+          btn.innerHTML = `<span class="radial-btn-icon">${p.icon}</span><span class="radial-btn-label">${p.label}</span>`;
+          btn.title = p.label;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.closeRadialMenu();
+            p.action();
+          });
+          petalsContainer.appendChild(btn);
+        });
+      } else {
+        // 4 круговые кнопки 46x46 px для отряда юнита (радиус 62px)
+        const petals = [
+          { id: 'defend', icon: '🛡️', label: 'Оборона', dx: 0, dy: -62, action: () => this.executeAction('defend') },
+          { id: 'wait', icon: '⏳', label: 'Ждать', dx: 62, dy: 0, action: () => this.executeAction('wait') },
+          { id: 'inspect', icon: '🔍', label: 'Досье', dx: 0, dy: 62, action: () => this.openUnitInspectModal(stackId) },
+          { id: 'summary', icon: '🏰', label: 'Сводка', dx: -62, dy: 0, action: () => this.openBottomSheet('castle') }
+        ];
+
+        petals.forEach((p, idx) => {
+          const btn = document.createElement('button');
+          btn.className = 'radial-btn';
+          btn.style.left = `${p.dx}px`;
+          btn.style.top = `${p.dy}px`;
+          btn.style.animationDelay = `${idx * 0.03}s`;
+          btn.innerHTML = `<span class="radial-btn-icon">${p.icon}</span><span class="radial-btn-label">${p.label}</span>`;
+          btn.title = p.label;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.closeRadialMenu();
+            p.action();
+          });
+          petalsContainer.appendChild(btn);
+        });
+      }
+
+      menu.classList.remove('homm5-hidden');
+    },
+
+    closeRadialMenu() {
+      const menu = document.getElementById('radial-action-menu');
+      if (menu) menu.classList.add('homm5-hidden');
+      this.radialTargetStackId = null;
+    },
+
+    prepareSpell(spellId) {
+      const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
+      if (!bState || bState.status !== 'active') return;
+
+      const spell = (CFG.SPELLS || {})[spellId];
+      if (!spell) return;
+
+      const hero = bState.heroPlayer;
+      if (hero && hero.mana < spell.manaCost) {
+        this.addCombatLogEntry(`Недостаточно маны для заклинания «${spell.name}» (требуется ${spell.manaCost}🔮, у вас ${hero.mana}🔮)!`, 'spell');
+        Audio.playSFX('defeat');
+        return;
+      }
+
+      this.targetingSpell = spellId;
+      this.targetingHeroStrike = false;
+      this.showTargetingCancelChip();
+
+      Audio.playSFX('click');
+      this.addCombatLogEntry(`Прицеливание заклинания «${spell.name}». Кликните по целевой клетке поля боя (Escape для отмены).`, 'spell');
+
+      if (HOMM5.World3D && typeof HOMM5.World3D.highlightCells === 'function') {
+        const targets = [];
+        if (spell.targetType === 'ally') {
+          bState.stacks.filter((s) => s.side === 'player' && s.count > 0).forEach((s) => targets.push({ col: s.col, row: s.row }));
+        } else if (spell.targetType === 'enemy') {
+          bState.stacks.filter((s) => s.side === 'enemy' && s.count > 0).forEach((s) => targets.push({ col: s.col, row: s.row }));
+        } else if (spell.targetType === 'area3x3') {
+          for (let c = 0; c < 10; c++) {
+            for (let r = 0; r < 8; r++) {
+              targets.push({ col: c, row: r });
+            }
+          }
+        }
+        HOMM5.World3D.highlightCells({ moves: [], targets });
+      }
+    },
+
+    openBottomSheet(tab, extraData) {
+      const sheet = this.elements.bottomSheet || document.getElementById('homm-bottom-sheet');
+      const backdrop = this.elements.bottomSheetBackdrop || document.getElementById('homm-bottom-sheet-backdrop');
+      const title = this.elements.bottomSheetTitle || document.getElementById('bottom-sheet-title');
+      const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
+      if (!sheet || !content) return;
+
+      this.currentSheet = tab;
+      this.isBottomSheetOpen = true;
+      Audio.playSFX('click');
+
+      if (tab === 'castle') {
+        if (title) title.innerText = '🏰 Замок «Коготь Грифона»';
+        this.renderCastleSheet(extraData);
+      } else if (tab === 'valley') {
+        if (title) title.innerText = '🗺️ Долина Миссий и Сокровищ';
+        this.renderValleySheet();
+      } else if (tab === 'atb') {
+        if (title) title.innerText = '⚔️ Тактическая шкала инициативы (ATB)';
+        this.renderAtbSheet();
+      } else if (tab === 'settings') {
+        if (title) title.innerText = '⚙️ Настройки и Меню';
+        this.renderSettingsSheet();
+      }
+
+      sheet.style.transform = '';
+      sheet.classList.add('homm5-sheet-open');
+      backdrop?.classList.add('homm5-sheet-open');
+    },
+
+    closeBottomSheet() {
+      const sheet = this.elements.bottomSheet || document.getElementById('homm-bottom-sheet');
+      const backdrop = this.elements.bottomSheetBackdrop || document.getElementById('homm-bottom-sheet-backdrop');
+      this.isBottomSheetOpen = false;
+      this.currentSheet = null;
+      if (sheet) {
+        sheet.classList.remove('homm5-sheet-open');
+        sheet.style.transform = '';
+      }
+      backdrop?.classList.remove('homm5-sheet-open');
+      Audio.playSFX('click');
+    },
+
+    renderCastleSheet(focusBuildingId) {
+      const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
+      if (!content) return;
+
+      const campState = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+      const armyDict = normalizeArmyToDict(campState.army);
+      const buildings = campState.buildings || {};
+      const pool = campState.dwellingPool || campState.dwellingsAvailable || {};
+
+      let html = '<div class="sheet-castle-section">';
+
+      html += `
+        <div class="sheet-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
+          <button class="homm5-btn homm5-btn-gold" style="flex:1;" id="btn-sheet-tab-castle">🏰 Замок</button>
+          <button class="homm5-btn" style="flex:1;" id="btn-sheet-tab-valley">🗺️ Долина</button>
+          <button class="homm5-btn" style="flex:1;" id="btn-sheet-tab-settings">⚙️ Меню</button>
+        </div>
+        <div class="sheet-nav-actions" style="display:flex; gap:6px; margin-bottom:10px;">
+          <button class="homm5-btn homm5-btn-gold" id="btn-sheet-nav-valley" style="flex:1; font-size:11px; padding:6px 8px;">
+            🗺️ Выйти в 3D-Долину Миссий
+          </button>
+          <button class="homm5-btn homm5-btn-crimson" id="btn-sheet-nav-quickbattle" style="flex:1; font-size:11px; padding:6px 8px;">
+            ⚔️ Быстрый Бой (Дуэль)
+          </button>
+        </div>
+        <div class="sheet-res-bar">
+          <span>💰 Золото: <b>${Number(campState.gold || 0).toLocaleString('ru-RU')}</b></span>
+          <span>💎 Кристаллы: <b>${campState.crystals || 0}</b></span>
+          <span>📅 Неделя ${campState.week || 1}, День ${campState.day || 1}</span>
+        </div>
+      `;
+
+      html += '<div class="sheet-subhead">🛡️ Гарнизон и Наём существ</div>';
+      const orderUnits = ['squire', 'crossbowman', 'griffin', 'paladin'];
+      orderUnits.forEach((uid) => {
+        const u = CFG.UNITS[uid];
+        if (!u) return;
+        const inArmy = armyDict[uid] || 0;
+        const canRecruit = pool[uid] || 0;
+        const bId = u.dwellingBuildingId || (uid === 'squire' ? 'barracks' : uid === 'crossbowman' ? 'archery_range' : uid === 'griffin' ? 'griffin_tower' : 'monastery');
+        const isBuilt = buildings[bId] || uid === 'squire';
+
+        html += `
+          <div class="sheet-unit-row">
+            <div class="sheet-row-info">
+              <span>${u.icon}</span>
+              <div>
+                <b>${u.name}</b>: в армии <b>${inArmy}</b>
+                <div style="font-size: 10px; color: #94a3b8;">Прирост: +${u.weeklyGrowth}/нед. Доступно: ${canRecruit}</div>
+              </div>
+            </div>
+            <div class="sheet-row-actions">
+              ${isBuilt ? `
+                <button class="homm5-btn homm5-btn-gold btn-sheet-recruit" data-unit="${u.id}" ${canRecruit <= 0 || campState.gold < u.costGold ? 'disabled' : ''} style="font-size: 11px; padding: 4px 8px;">
+                  +1 (${u.costGold}💰)
+                </button>
+              ` : `<span style="font-size: 10px; color: #ef4444;">Нужна постройка</span>`}
+            </div>
+          </div>
+        `;
+      });
+
+      html += '<div class="sheet-subhead">🏰 Цитадель и Постройки</div>';
+      const bList = CFG.BUILDINGS || {};
+      Object.keys(bList).forEach((bid) => {
+        const b = bList[bid];
+        const isBuilt = !!buildings[bid];
+        const canAfford = (campState.gold >= (b.costGold || 0)) && (campState.crystals >= (b.costCrystal || 0));
+
+        html += `
+          <div class="sheet-building-row ${bid === focusBuildingId ? 'style="border-color: #fbbf24;"' : ''}">
+            <div class="sheet-row-info">
+              <span>${b.icon || '🏛️'}</span>
+              <div>
+                <b>${b.name}</b>
+                <div style="font-size: 10px; color: #94a3b8;">${b.desc || ''}</div>
+              </div>
+            </div>
+            <div class="sheet-row-actions">
+              ${isBuilt ? '<span style="color: #34d399; font-size: 11px; font-weight: bold;">✅ Возведено</span>' : `
+                <button class="homm5-btn btn-sheet-build" data-building="${b.id}" ${!canAfford ? 'disabled' : ''} style="font-size: 11px; padding: 4px 8px;">
+                  🔨 ${b.costGold}💰 ${b.costCrystal ? b.costCrystal + '💎' : ''}
+                </button>
+              `}
+            </div>
+          </div>
+        `;
+      });
+
+      html += `
+        <div style="margin-top: 10px; text-align: center;">
+          <button class="homm5-btn homm5-btn-gold" id="btn-sheet-next-week" style="width: 100%; padding: 8px;">
+            📅 Завершить ход недели (+прирост существ)
+          </button>
+        </div>
+      `;
+
+      html += '</div>';
+      content.innerHTML = html;
+
+      content.querySelectorAll('.btn-sheet-recruit').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const uid = btn.getAttribute('data-unit');
+          if (HOMM5.CombatCore && typeof HOMM5.CombatCore.recruitUnit === 'function') {
+            const res = HOMM5.CombatCore.recruitUnit(uid, 1);
+            if (res.ok) {
+              Audio.playSFX('spell_light');
+              this.renderCastleSheet(focusBuildingId);
+            } else {
+              Audio.playSFX('defeat');
+              alert(res.message);
+            }
+          }
+        });
+      });
+
+      content.querySelectorAll('.btn-sheet-build').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const bid = btn.getAttribute('data-building');
+          if (HOMM5.CombatCore && typeof HOMM5.CombatCore.constructBuilding === 'function') {
+            const res = HOMM5.CombatCore.constructBuilding(bid);
+            if (res.ok) {
+              Audio.playSFX('spell_light');
+              this.renderCastleSheet(bid);
+            } else {
+              Audio.playSFX('defeat');
+              alert(res.message);
+            }
+          }
+        });
+      });
+
+      content.querySelector('#btn-sheet-next-week')?.addEventListener('click', () => {
+        if (HOMM5.CombatCore && typeof HOMM5.CombatCore.nextWeek === 'function') {
+          const res = HOMM5.CombatCore.nextWeek();
+          if (res.ok) {
+            Audio.playSFX('spell_light');
+            this.renderCastleSheet(focusBuildingId);
+          }
+        }
+      });
+
+      content.querySelector('#btn-sheet-tab-castle')?.addEventListener('click', () => {
+        this.openBottomSheet('castle');
+      });
+      content.querySelector('#btn-sheet-tab-valley')?.addEventListener('click', () => {
+        this.openBottomSheet('valley');
+      });
+      content.querySelector('#btn-sheet-tab-settings')?.addEventListener('click', () => {
+        this.openBottomSheet('settings');
+      });
+      content.querySelector('#btn-sheet-nav-valley')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.setMode('valley');
+      });
+      content.querySelector('#btn-sheet-nav-quickbattle')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.startQuickBattle();
+      });
+    },
+
+    renderValleySheet() {
+      const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
+      if (!content) return;
+
+      const save = SaveV3.getSaveData();
+      const nodes = CFG.VALLEY_NODES || [];
+      const completed = save.completedNodes || save.valleyNodesVisited || {};
+
+      let html = '<div class="sheet-valley-section">';
+
+      html += `
+        <div class="sheet-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
+          <button class="homm5-btn" style="flex:1;" id="btn-vsheet-tab-castle">🏰 Замок</button>
+          <button class="homm5-btn homm5-btn-gold" style="flex:1;" id="btn-vsheet-tab-valley">🗺️ Долина</button>
+          <button class="homm5-btn" style="flex:1;" id="btn-vsheet-tab-settings">⚙️ Меню</button>
+        </div>
+        <div class="sheet-nav-actions" style="display:flex; gap:6px; margin-bottom:10px;">
+          <button class="homm5-btn homm5-btn-gold" id="btn-vsheet-nav-castle" style="flex:1; font-size:11px; padding:6px 8px;">
+            🏰 Вернуться в 3D-Замок
+          </button>
+          <button class="homm5-btn homm5-btn-crimson" id="btn-vsheet-nav-quickbattle" style="flex:1; font-size:11px; padding:6px 8px;">
+            ⚔️ Быстрый Бой
+          </button>
+        </div>
+        <div class="sheet-res-bar">
+          <span>💰 Золото: <b>${Number(save.gold || 0).toLocaleString('ru-RU')}</b></span>
+          <span>💎 Кристаллы: <b>${save.crystals || 0}</b></span>
+          <span>📅 Неделя ${save.week || 1}, День ${save.day || 1}</span>
+        </div>
+        <div class="sheet-subhead">🗺️ Узлы карты и боевые аванпосты</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+      `;
+
+      nodes.forEach((node) => {
+        const visited = !!completed[node.id];
+        const isLocked = node.missionIndex && node.missionIndex > (save.maxUnlockedMission || 1);
+        const stars = (save.bestStarsByMission && save.bestStarsByMission[node.missionIndex]) || 0;
+        const starStr = stars > 0 ? '★'.repeat(stars) : '';
+
+        let btnLabel = 'В поход';
+        if (node.type === 'treasure') btnLabel = '💰 Собрать';
+        else if (node.type === 'crystal_mine') btnLabel = '💎 Захватить';
+        else if (node.type === 'battle') btnLabel = '⚔️ В бой';
+
+        html += `
+          <div class="sheet-unit-row ${visited ? 'homm5-visited' : ''}" style="opacity:${isLocked ? 0.5 : 1};" data-node-id="${node.id}">
+            <div class="sheet-row-info">
+              <span style="font-size:20px;">${node.icon}</span>
+              <div>
+                <b>${node.name}</b> ${starStr ? `<span style="color:var(--gold-bright);">${starStr}</span>` : ''}
+                <div style="font-size: 10px; color: #94a3b8;">
+                  ${visited ? '✅ Завершено' : (isLocked ? '🔒 Требуется открыть' : (node.difficulty || 'Награда готова'))}
+                </div>
+              </div>
+            </div>
+            <div class="sheet-row-actions">
+              ${!isLocked && !visited ? `
+                <button class="homm5-btn homm5-btn-gold btn-sheet-node-action" data-node-id="${node.id}" style="font-size: 11px; padding: 4px 8px;">
+                  ${btnLabel}
+                </button>
+              ` : (visited ? '<span style="color: #34d399; font-size: 11px; font-weight: bold;">✅ Готово</span>' : '<span style="color: #ef4444; font-size: 11px;">🔒 Закрыто</span>')}
+            </div>
+          </div>
+        `;
+      });
+
+      html += '</div></div>';
+      content.innerHTML = html;
+
+      content.querySelector('#btn-vsheet-tab-castle')?.addEventListener('click', () => {
+        this.openBottomSheet('castle');
+      });
+      content.querySelector('#btn-vsheet-tab-valley')?.addEventListener('click', () => {
+        this.openBottomSheet('valley');
+      });
+      content.querySelector('#btn-vsheet-tab-settings')?.addEventListener('click', () => {
+        this.openBottomSheet('settings');
+      });
+      content.querySelector('#btn-vsheet-nav-castle')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.setMode('castle');
+      });
+      content.querySelector('#btn-vsheet-nav-quickbattle')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.startQuickBattle();
+      });
+
+      content.querySelectorAll('.btn-sheet-node-action').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const nid = btn.getAttribute('data-node-id');
+          const node = nodes.find((n) => n.id === nid);
+          if (!node) return;
+          const isLocked = node.missionIndex && node.missionIndex > (save.maxUnlockedMission || 1);
+          if (isLocked) return;
+
+          if (node.type === 'treasure') {
+            this.closeBottomSheet();
+            this.openTreasureModal(node);
+          } else if (node.type === 'crystal_mine') {
+            if (HOMM5.CombatCore && typeof HOMM5.CombatCore.interactValleyNode === 'function') {
+              const res = HOMM5.CombatCore.interactValleyNode(node.id);
+              if (res.ok) {
+                Audio.playSFX('spell_light');
+                this.addCombatLogEntry(res.message, 'haven');
+                this.renderValleySheet();
+              } else {
+                alert(res.message);
+              }
+            }
+          } else if (node.type === 'battle') {
+            this.closeBottomSheet();
+            this.startBattle(node);
+          }
+        });
+      });
+    },
+
+    renderAtbSheet() {
+      const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
+      if (!content) return;
+
+      const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
+      if (!bState || bState.status !== 'active') {
+        content.innerHTML = `
+          <div style="text-align: center; padding: 24px 10px;">
+            <div style="font-size: 28px; margin-bottom: 8px;">⚔️</div>
+            <div style="font-size: 14px; font-weight: bold; color: #fbbf24; margin-bottom: 6px;">Тактический бой не активен</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-bottom: 16px;">Выберите узел долины или запустите Быстрый Бой!</div>
+            <button class="homm5-btn homm5-btn-crimson" id="btn-sheet-start-combat" style="padding: 8px 16px;">
+              ⚔️ Начать Быстрый Бой
+            </button>
+          </div>
+        `;
+        content.querySelector('#btn-sheet-start-combat')?.addEventListener('click', () => {
+          this.closeBottomSheet();
+          this.startQuickBattle();
+        });
+        return;
+      }
+
+      const activeActorId = bState.activeActorId;
+      const activeActor = (bState.stacks || []).find((s) => s.id === activeActorId) || (bState.heroPlayer && bState.heroPlayer.id === activeActorId ? bState.heroPlayer : null);
+
+      let html = '<div class="sheet-atb-section">';
+
+      if (activeActor) {
+        const isPlayer = activeActor.side === 'player';
+        const maxHp = activeActor.maxHp || (activeActor.hp * (activeActor.count || 1));
+        const curHp = activeActor.currentHp ?? maxHp;
+        html += `
+          <div class="sheet-setting-group" style="border-color: ${isPlayer ? '#60a5fa' : '#ef4444'};">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 22px;">${activeActor.icon || '🛡️'}</span>
+              <div>
+                <b style="color: ${isPlayer ? '#93c5fd' : '#fca5a5'};">${activeActor.name || 'Юнит'}</b>
+                <span style="font-size: 11px; color: #fbbf24;"> (${activeActor.isHeroActor ? 'Герой' : activeActor.count + ' шт.'})</span>
+                <div style="font-size: 11px; color: #cbd5e1;">ОЗ: ${curHp} / ${maxHp} | Инициатива: ${activeActor.initiative || 10}</div>
+              </div>
+            </div>
+            ${isPlayer ? `
+              <div class="sheet-row-actions">
+                <button class="homm5-btn homm5-btn-gold" id="btn-sheet-defend" style="padding: 6px 10px; font-size: 11px;">🛡️ Оборона</button>
+                <button class="homm5-btn" id="btn-sheet-wait" style="padding: 6px 10px; font-size: 11px;">⏳ Ждать</button>
+              </div>
+            ` : '<span style="color: #ef4444; font-size: 11px; font-weight: bold;">Ход Врага</span>'}
+          </div>
+        `;
+      }
+
+      html += '<div class="sheet-subhead">📋 Полная очередь ходов (ATB)</div>';
+      const queue = this.atbQueue || [];
+      if (queue.length === 0) {
+        html += '<div style="font-size: 12px; color: #94a3b8; padding: 8px;">Очередь формируется...</div>';
+      } else {
+        html += '<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">';
+        queue.forEach((item, idx) => {
+          const isPlayer = item.side === 'player';
+          const maxHp = item.maxHp || (item.hp * (item.count || 1));
+          const curHp = item.currentHp ?? maxHp;
+          html += `
+            <div class="sheet-unit-row" style="padding: 6px 10px; ${idx === 0 ? 'background: rgba(30, 41, 59, 0.9); border-color: #fbbf24;' : ''}">
+              <div class="sheet-row-info">
+                <span style="font-size: 11px; color: #fbbf24; font-weight: bold; width: 22px;">#${idx + 1}</span>
+                <span style="font-size: 16px;">${item.icon || '🛡️'}</span>
+                <div>
+                  <b style="color: ${isPlayer ? '#93c5fd' : '#fca5a5'}; font-size: 12px;">${item.name || 'Юнит'}</b>
+                  <span style="font-size: 10px; color: #cbd5e1;"> (${item.isHero ? 'Герой' : item.count + ' шт.'})</span>
+                </div>
+              </div>
+              <div style="font-size: 11px; color: #94a3b8;">
+                ОЗ: ${curHp}/${maxHp}
+              </div>
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      html += '</div>';
+      content.innerHTML = html;
+
+      content.querySelector('#btn-sheet-defend')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.executeAction('defend');
+      });
+
+      content.querySelector('#btn-sheet-wait')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.executeAction('wait');
+      });
+    },
+
+    renderSettingsSheet() {
+      const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
+      if (!content) return;
+
+      const isMuted = Audio.isMuted();
+
+      let html = `
+        <div class="sheet-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
+          <button class="homm5-btn" style="flex:1;" id="btn-ssheet-tab-castle">🏰 Замок</button>
+          <button class="homm5-btn" style="flex:1;" id="btn-ssheet-tab-valley">🗺️ Долина</button>
+          <button class="homm5-btn homm5-btn-gold" style="flex:1;" id="btn-ssheet-tab-settings">⚙️ Меню</button>
+        </div>
+        <div class="sheet-settings-list">
+          <div class="sheet-setting-group">
+            <div>
+              <b>📱 Режим интерфейса</b>
+              <div style="font-size: 10.5px; color: #94a3b8;">Микро-HUD (≤ 5% экрана) или Классика ПК</div>
+            </div>
+            <div class="sheet-btn-toggle-pair">
+              <button class="homm5-btn ${this.isMinimalHud ? 'homm5-btn-gold' : ''}" id="btn-sheet-hud-minimal">
+                📱 Мини 5%
+              </button>
+              <button class="homm5-btn ${!this.isMinimalHud ? 'homm5-btn-gold' : ''}" id="btn-sheet-hud-classic">
+                🖥️ ПК
+              </button>
+            </div>
+          </div>
+
+          <div class="sheet-setting-group">
+            <div>
+              <b>🔊 Звук и Музыка</b>
+              <div style="font-size: 10.5px; color: #94a3b8;">Синтезатор WebAudio и боевые фанфары</div>
+            </div>
+            <button class="homm5-btn" id="btn-sheet-toggle-sound">
+              ${isMuted ? '🔇 Включить' : '🔊 Выключить'}
+            </button>
+          </div>
+
+          <div class="sheet-setting-group">
+            <div>
+              <b>🌅 Освещение Асхана</b>
+              <div style="font-size: 10.5px; color: #94a3b8;">Светлый полдень или Затмение/Закат</div>
+            </div>
+            <button class="homm5-btn" id="btn-sheet-toggle-light">
+              🌅 День / Закат
+            </button>
+          </div>
+
+          <div class="sheet-setting-group">
+            <div>
+              <b>📲 Мобильная игра</b>
+              <div style="font-size: 10.5px; color: #94a3b8;">Установить PWA или скачать Android APK</div>
+            </div>
+            <button class="homm5-btn homm5-btn-gold" id="btn-sheet-open-install">
+              📲 Установка
+            </button>
+          </div>
+
+          <div class="sheet-setting-group">
+            <div>
+              <b>💾 Сохранения (v3)</b>
+              <div style="font-size: 10.5px; color: #94a3b8;">IndexedDB + LocalStorage + Экспорт JSON</div>
+            </div>
+            <div class="sheet-btn-toggle-pair">
+              <button class="homm5-btn" id="btn-sheet-quick-save">💾 Сохранить</button>
+              <button class="homm5-btn" id="btn-sheet-open-saves">📂 Меню</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      content.innerHTML = html;
+
+      content.querySelector('#btn-sheet-hud-minimal')?.addEventListener('click', () => {
+        this.setHUDMode(true);
+      });
+
+      content.querySelector('#btn-sheet-hud-classic')?.addEventListener('click', () => {
+        this.setHUDMode(false);
+      });
+
+      content.querySelector('#btn-sheet-toggle-sound')?.addEventListener('click', () => {
+        Audio.toggleMute();
+        this.renderSettingsSheet();
+      });
+
+      content.querySelector('#btn-sheet-toggle-light')?.addEventListener('click', () => {
+        this.toggleLighting();
+      });
+
+      content.querySelector('#btn-sheet-open-install')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.openInstallModal();
+      });
+
+      content.querySelector('#btn-sheet-quick-save')?.addEventListener('click', () => {
+        this.saveCurrentState();
+        alert('💾 Прогресс кампании сохранён (Dual-Layer v3)!');
+      });
+
+      content.querySelector('#btn-sheet-open-saves')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        this.openSaveModal();
+      });
+
+      content.querySelector('#btn-ssheet-tab-castle')?.addEventListener('click', () => {
+        this.openBottomSheet('castle');
+      });
+      content.querySelector('#btn-ssheet-tab-valley')?.addEventListener('click', () => {
+        this.openBottomSheet('valley');
+      });
+      content.querySelector('#btn-ssheet-tab-settings')?.addEventListener('click', () => {
+        this.openBottomSheet('settings');
+      });
     },
 
     castTargetedSpell(spellId, col, row, targetStackId) {
@@ -2072,10 +3200,8 @@
           const s = spells[sid];
           if (!s || curMana < s.manaCost) return;
 
-          this.targetingSpell = sid;
-          this.targetingHeroStrike = false;
           this.closeModal();
-          this.addCombatLogEntry(`Прицеливание заклинания «${s.name}». Кликните по целевой клетке поля боя (Escape для отмены).`, 'spell');
+          this.prepareSpell(sid);
         });
       });
     },

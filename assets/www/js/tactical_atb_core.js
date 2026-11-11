@@ -1321,6 +1321,175 @@
     };
   }
 
+  // Неразрушающий прогноз урона (в стиле Fire Emblem Heroes для всплывающего Micro-HUD)
+  function estimateDamagePreview(attackerId, defenderId, moveDist) {
+    moveDist = moveDist || 0;
+    if (!battleState) {
+      return { ok: false, message: 'Битва не начата' };
+    }
+
+    const defender = battleState.stacks.find((s) => s.id === defenderId);
+    if (!defender || defender.count <= 0) {
+      return { ok: false, message: 'Цель не найдена или уже уничтожена' };
+    }
+
+    // Случай 1: Атака Героя (находится вне сетки, прямой удар полководца)
+    if (attackerId === 'hero_player' || attackerId === 'hero_enemy') {
+      const hero = attackerId === 'hero_player' ? battleState.heroPlayer : battleState.heroEnemy;
+      if (!hero) {
+        return { ok: false, message: 'Герой не найден' };
+      }
+
+      let heroDmg = Math.round(18 + (hero.attack || 6) * 7 + (hero.spellPower || 5) * 3);
+      if (defender.buffs && defender.buffs.divine_shield > 0) {
+        heroDmg = Math.round(heroDmg * 0.75);
+      }
+      heroDmg = Math.max(1, heroDmg);
+
+      const totalHpBefore = (defender.count - 1) * defender.maxHp + defender.topHp;
+      const totalHpAfter = Math.max(0, totalHpBefore - heroDmg);
+      const remCount = totalHpAfter > 0 ? Math.ceil(totalHpAfter / defender.maxHp) : 0;
+      const kills = Math.max(0, Math.min(defender.count, defender.count - remCount));
+
+      return {
+        ok: true,
+        minDamage: heroDmg,
+        maxDamage: heroDmg,
+        minKills: kills,
+        maxKills: kills,
+        willRetaliate: false,
+        targetName: defender.name
+      };
+    }
+
+    // Случай 2: Атака отряда
+    const attacker = battleState.stacks.find((s) => s.id === attackerId);
+    if (!attacker || attacker.count <= 0) {
+      return { ok: false, message: 'Атакующий отряд не найден' };
+    }
+
+    const allyHero = attacker.side === 'player' ? battleState.heroPlayer : battleState.heroEnemy;
+    const enemyHero = defender.side === 'player' ? battleState.heroPlayer : battleState.heroEnemy;
+
+    const uAtk = attacker.unit;
+    const uDef = defender.unit;
+
+    // 1. Эффективная Атака
+    let effAtk = uAtk.attack + (allyHero ? allyHero.attack : 0);
+    if (attacker.buffs && attacker.buffs.righteous_might > 0) {
+      effAtk += 6;
+    }
+
+    // 2. Эффективная Защита
+    let effDef = uDef.defense + (enemyHero ? enemyHero.defense : 0);
+    if (defender.buffs && defender.buffs.divine_shield > 0) {
+      effDef += 8;
+    }
+    if (defender.defending) {
+      effDef = Math.round(effDef * 1.30);
+    }
+
+    // 3. Множитель статов
+    let statMultiplier = 1.0;
+    if (effAtk >= effDef) {
+      statMultiplier = Math.min(3.0, 1.0 + 0.05 * (effAtk - effDef));
+    } else {
+      statMultiplier = 1.0 / (1.0 + 0.05 * (effDef - effAtk));
+    }
+
+    // Определение режима (ближний / дальний бой)
+    const enemySide = attacker.side === 'player' ? 'enemy' : 'player';
+    let isShooterBlocked = false;
+    if (uAtk.isRanged) {
+      for (let i = 0; i < battleState.stacks.length; i++) {
+        const es = battleState.stacks[i];
+        if (es.side === enemySide && es.count > 0) {
+          if (Math.max(Math.abs(es.col - attacker.col), Math.abs(es.row - attacker.row)) <= 1) {
+            isShooterBlocked = true;
+            break;
+          }
+        }
+      }
+    }
+
+    const isMelee = !uAtk.isRanged || moveDist > 0 || isShooterBlocked || attacker.shotsLeft <= 0;
+    const mode = isMelee ? 'melee' : 'ranged';
+
+    // 4. Модификаторы урона
+    let modMultiplier = 1.0;
+
+    // Рыцарский разбег Паладина (+8% за клетку разбега, до +48%)
+    if (uAtk.joustingBonus && moveDist > 0) {
+      const joustBonus = Math.min(0.48, Math.round(moveDist) * 0.08);
+      modMultiplier *= (1.0 + joustBonus);
+    }
+
+    // Штраф стрелку в ближнем бою (0.5x)
+    if (uAtk.isRanged && mode === 'melee') {
+      modMultiplier *= 0.50;
+    }
+
+    // Штраф стрелку на дистанции > 5 клеток (0.5x, кроме Арбалетчиков с noRangePenalty)
+    if (mode === 'ranged') {
+      const dist = Math.max(Math.abs(attacker.col - defender.col), Math.abs(attacker.row - defender.row));
+      if (dist > 5 && !uAtk.noRangePenalty) {
+        modMultiplier *= 0.50;
+      }
+    }
+
+    // Большой щит Латника (-35% от стрел)
+    if (uDef.id === 'squire' && mode === 'ranged') {
+      modMultiplier *= 0.65;
+    }
+
+    // Купол Небесного Щита (-25% любого входящего урона)
+    if (defender.buffs && defender.buffs.divine_shield > 0) {
+      modMultiplier *= 0.75;
+    }
+
+    // Клинок Погибели Пещерного Владыки (+20% чистого урона пламени)
+    if (uAtk.cleaveBurn) {
+      modMultiplier *= 1.20;
+    }
+
+    // 5. Диапазон базового урона
+    let minBase = uAtk.minDmg;
+    let maxBase = uAtk.maxDmg;
+    if (attacker.buffs && attacker.buffs.righteous_might > 0) {
+      minBase = uAtk.maxDmg;
+      maxBase = uAtk.maxDmg;
+    }
+
+    const minDamage = Math.max(1, Math.round(attacker.count * minBase * statMultiplier * modMultiplier));
+    const maxDamage = Math.max(1, Math.round(attacker.count * maxBase * statMultiplier * modMultiplier));
+
+    // 6. Расчёт потерь в отряде цели (minKills..maxKills)
+    const totalHpBefore = (defender.count - 1) * defender.maxHp + defender.topHp;
+
+    const afterMinDmg = Math.max(0, totalHpBefore - minDamage);
+    const remCountAfterMin = afterMinDmg > 0 ? Math.ceil(afterMinDmg / defender.maxHp) : 0;
+    const minKills = Math.max(0, Math.min(defender.count, defender.count - remCountAfterMin));
+
+    const afterMaxDmg = Math.max(0, totalHpBefore - maxDamage);
+    const remCountAfterMax = afterMaxDmg > 0 ? Math.ceil(afterMaxDmg / defender.maxHp) : 0;
+    const maxKills = Math.max(0, Math.min(defender.count, defender.count - remCountAfterMax));
+
+    // 7. Возможность ответного удара
+    const willRetaliate = isMelee &&
+      !uAtk.noRetaliationAttack &&
+      (!defender.retaliatedThisRound || !!uDef.infiniteRetaliation);
+
+    return {
+      ok: true,
+      minDamage: minDamage,
+      maxDamage: maxDamage,
+      minKills: minKills,
+      maxKills: maxKills,
+      willRetaliate: willRetaliate,
+      targetName: defender.name
+    };
+  }
+
   function executeUnitAttack(targetStackId, preferredMoveCell) {
     if (!battleState || battleState.status !== 'active') return { ok: false, message: 'Битва не активна' };
     const attacker = battleState.stacks.find((s) => s.id === battleState.activeActorId);
@@ -1902,6 +2071,7 @@
     commandDefend: commandDefend,
     executeUnitMove: executeUnitMove,
     executeUnitAttack: executeUnitAttack,
+    estimateDamagePreview: estimateDamagePreview,
     castSpell: castSpell,
     executeHeroStrike: executeHeroStrike,
     computeEnemyAIDecision: computeEnemyAIDecision,
