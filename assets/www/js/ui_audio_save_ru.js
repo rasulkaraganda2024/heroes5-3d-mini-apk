@@ -82,6 +82,23 @@
      * Создание чистого начального профиля кампании «Эпоха Грифонов» (без вызова ядровой кампании во избежание рекурсии)
      */
     getDefaultSave() {
+      const advCfg = HOMM5.ADVENTURE_CONFIG || CFG.ADVENTURE_CONFIG || {};
+      const startPos = advCfg.startPos || { x: 0, z: 6.5 };
+      const baseMp = Number(advCfg.baseMovePoints) || 12;
+      const defaultRevealed = {};
+      const sectors = advCfg.fogSectors || [];
+      if (sectors.length > 0) {
+        sectors.forEach((sec) => {
+          defaultRevealed[sec.id] = !!sec.defaultRevealed;
+        });
+      } else {
+        defaultRevealed.sector_castle_gate = true;
+        defaultRevealed.sector_west_woods = true;
+        defaultRevealed.sector_east_crystals = true;
+        defaultRevealed.sector_ashen_ruins = false;
+        defaultRevealed.sector_citadel_ash = false;
+      }
+
       return {
         version: '3.0.0',
         timestamp: Date.now(),
@@ -91,7 +108,7 @@
         week: 1,
         maxUnlockedMission: 1,
         victories: 0,
-        bestStarsByMission: { 1: 0, 2: 0, 3: 0 },
+        bestStarsByMission: { 1: 0, 2: 0, 3: 0, 4: 0 },
         hero: {
           id: 'haven_lord',
           name: 'Лорд Годрик',
@@ -107,8 +124,22 @@
           morale: 2,
           luck: 2,
           level: 1,
-          xp: 0
+          xp: 0,
+          skillPoints: 1,
+          unlockedSkills: []
         },
+        ownedArtifacts: [],
+        equippedArtifacts: {
+          weapon: null,
+          shield: null,
+          helm: null,
+          boots: null
+        },
+        capturedMines: {},
+        revealedSectors: defaultRevealed,
+        heroPos: { x: Number(startPos.x) || 0, z: Number(startPos.z) || 6.5 },
+        movePoints: baseMp,
+        maxMovePoints: baseMp,
         buildings: {
           barracks: true,
           marksmen_tower: true,
@@ -137,10 +168,15 @@
      */
     mergeSaveData(a, b) {
       if (!a && !b) return this.getDefaultSave();
-      if (!a) return JSON.parse(JSON.stringify(b));
-      if (!b) return JSON.parse(JSON.stringify(a));
-
       const res = this.getDefaultSave();
+      if (!a) return this.mergeSaveData(res, b);
+      if (!b) return this.mergeSaveData(res, a);
+
+      const tsA = Number(a.timestamp) || 0;
+      const tsB = Number(b.timestamp) || 0;
+      const bIsNewer = tsB >= tsA;
+      const newer = bIsNewer ? b : a;
+      const older = bIsNewer ? a : b;
 
       res.maxUnlockedMission = Math.max(a.maxUnlockedMission || 1, b.maxUnlockedMission || 1);
       res.victories = Math.max(a.victories || 0, b.victories || 0);
@@ -150,7 +186,8 @@
       res.bestStarsByMission = {
         1: Math.max(starsA[1] || 0, starsB[1] || 0),
         2: Math.max(starsA[2] || 0, starsB[2] || 0),
-        3: Math.max(starsA[3] || 0, starsB[3] || 0)
+        3: Math.max(starsA[3] || 0, starsB[3] || 0),
+        4: Math.max(starsA[4] || 0, starsB[4] || 0)
       };
 
       res.gold = Math.max(a.gold ?? 1650, b.gold ?? 1650);
@@ -160,6 +197,24 @@
 
       const hA = a.hero || {};
       const hB = b.hero || {};
+      const aSkills = Array.isArray(hA.unlockedSkills) ? hA.unlockedSkills : [];
+      const bSkills = Array.isArray(hB.unlockedSkills) ? hB.unlockedSkills : [];
+      const mergedSkills = Array.from(new Set([...aSkills, ...bSkills])).filter(Boolean);
+
+      const hasModernSpA = typeof hA.skillPoints === 'number' && !Number.isNaN(hA.skillPoints);
+      const hasModernSpB = typeof hB.skillPoints === 'number' && !Number.isNaN(hB.skillPoints);
+      let mergedSkillPoints = 1;
+      if (hasModernSpA && hasModernSpB) {
+        mergedSkillPoints = Math.max(0, bIsNewer ? hB.skillPoints : hA.skillPoints);
+      } else if (hasModernSpB) {
+        mergedSkillPoints = Math.max(0, hB.skillPoints);
+      } else if (hasModernSpA) {
+        mergedSkillPoints = Math.max(0, hA.skillPoints);
+      } else {
+        const mergedLvl = Math.max(hA.level || 1, hB.level || 1);
+        mergedSkillPoints = Math.max(1, mergedLvl - mergedSkills.length);
+      }
+
       res.hero = {
         id: 'haven_lord',
         name: 'Лорд Годрик',
@@ -173,11 +228,74 @@
         knowledge: Math.max(hA.knowledge || 5, hB.knowledge || 5),
         maxMana: Math.max(hA.maxMana || 50, hB.maxMana || 50),
         mana: Math.max(hA.mana || 50, hB.mana || 50),
-        initiative: 10,
-        morale: 2,
-        luck: 2
+        initiative: Math.max(hA.initiative || 10, hB.initiative || 10),
+        morale: Math.max(hA.morale || 2, hB.morale || 2),
+        luck: Math.max(hA.luck || 2, hB.luck || 2),
+        skillPoints: mergedSkillPoints,
+        unlockedSkills: mergedSkills
       };
       if (res.hero.mana > res.hero.maxMana) res.hero.mana = res.hero.maxMana;
+
+      const artA = Array.isArray(a.ownedArtifacts) ? a.ownedArtifacts : [];
+      const artB = Array.isArray(b.ownedArtifacts) ? b.ownedArtifacts : [];
+      res.ownedArtifacts = Array.from(new Set([...artA, ...artB])).filter(Boolean);
+
+      const eqNew = newer.equippedArtifacts || {};
+      const eqOld = older.equippedArtifacts || {};
+      const eqRes = { weapon: null, shield: null, helm: null, boots: null };
+      ['weapon', 'shield', 'helm', 'boots'].forEach((slot) => {
+        const chosen = (slot in eqNew && eqNew[slot] !== undefined)
+          ? (eqNew[slot] || eqOld[slot] || null)
+          : (eqOld[slot] || null);
+        eqRes[slot] = chosen;
+        if (chosen && !res.ownedArtifacts.includes(chosen)) {
+          res.ownedArtifacts.push(chosen);
+        }
+      });
+      res.equippedArtifacts = eqRes;
+
+      const minesA = a.capturedMines || {};
+      const minesB = b.capturedMines || {};
+      const mergedMines = {};
+      Object.keys(Object.assign({}, minesA, minesB)).forEach((mKey) => {
+        if (minesA[mKey] || minesB[mKey]) mergedMines[mKey] = true;
+      });
+      res.capturedMines = mergedMines;
+
+      const advCfg = HOMM5.ADVENTURE_CONFIG || CFG.ADVENTURE_CONFIG || {};
+      const revA = a.revealedSectors || {};
+      const revB = b.revealedSectors || {};
+      const mergedSectors = Object.assign({}, res.revealedSectors);
+      Object.keys(Object.assign({}, mergedSectors, revA, revB)).forEach((sKey) => {
+        mergedSectors[sKey] = !!(res.revealedSectors[sKey] || revA[sKey] || revB[sKey]);
+      });
+      (advCfg.fogSectors || []).forEach((sec) => {
+        if (sec.defaultRevealed) mergedSectors[sec.id] = true;
+      });
+      res.revealedSectors = mergedSectors;
+
+      const startPos = advCfg.startPos || [0, 6.5];
+      const defX = Array.isArray(startPos) ? Number(startPos[0]) || 0 : Number(startPos.x) || 0;
+      const defZ = Array.isArray(startPos) ? Number(startPos[1]) || 6.5 : Number(startPos.z) || 6.5;
+      const posNew = newer.heroPos || older.heroPos || startPos;
+      const rawX = Array.isArray(posNew) ? Number(posNew[0]) : Number(posNew.x);
+      const rawZ = Array.isArray(posNew) ? Number(posNew[1]) : Number(posNew.z);
+      const safeX = Number.isFinite(rawX) ? rawX : defX;
+      const safeZ = Number.isFinite(rawZ) ? rawZ : defZ;
+      res.heroPos = Array.isArray(newer.heroPos || older.heroPos)
+        ? [safeX, safeZ]
+        : { x: safeX, z: safeZ };
+
+      const baseMp = Number(advCfg.baseMovePoints) || 12;
+      const rawMaxMp = (typeof newer.maxMovePoints === 'number' && Number.isFinite(newer.maxMovePoints))
+        ? newer.maxMovePoints
+        : ((typeof older.maxMovePoints === 'number' && Number.isFinite(older.maxMovePoints)) ? older.maxMovePoints : baseMp);
+      res.maxMovePoints = Math.max(baseMp, rawMaxMp);
+
+      const rawMp = (typeof newer.movePoints === 'number' && Number.isFinite(newer.movePoints))
+        ? newer.movePoints
+        : ((typeof older.movePoints === 'number' && Number.isFinite(older.movePoints)) ? older.movePoints : res.maxMovePoints);
+      res.movePoints = Math.max(0, Math.min(res.maxMovePoints, rawMp));
 
       const bA = a.buildings || {};
       const bB = b.buildings || {};
@@ -423,7 +541,8 @@
   const Audio = {
     ctx: null,
     masterGain: null,
-    isMutedState: false,
+    isMutedState: true,
+    isMusicEnabled: false,
     currentTheme: null,
     _themeTimer: null,
 
@@ -752,19 +871,75 @@
           break;
         }
 
+        case 'gallop': {
+          const beats = [0, 0.08, 0.19];
+          beats.forEach((off, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(idx === 2 ? 155 : 125, now + off);
+            osc.frequency.exponentialRampToValueAtTime(52, now + off + 0.055);
+            gain.gain.setValueAtTime(0.22, now + off);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + off + 0.055);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(now + off);
+            osc.stop(now + off + 0.055);
+          });
+          break;
+        }
+
+        case 'capture': {
+          const fanfare = [392.0, 523.25, 659.25, 783.99];
+          fanfare.forEach((f, idx) => {
+            const st = now + idx * 0.07;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(f, st);
+            gain.gain.setValueAtTime(0.24, st);
+            gain.gain.exponentialRampToValueAtTime(0.001, st + 0.4);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(st);
+            osc.stop(st + 0.4);
+          });
+          break;
+        }
+
+        case 'skill_up': {
+          const chime = [523.25, 659.25, 783.99, 1046.5, 1318.5];
+          chime.forEach((f, idx) => {
+            const st = now + idx * 0.055;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
+            osc.frequency.setValueAtTime(f, st);
+            gain.gain.setValueAtTime(0.22, st);
+            gain.gain.exponentialRampToValueAtTime(0.001, st + 0.48);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(st);
+            osc.stop(st + 0.48);
+          });
+          break;
+        }
+
         default:
           break;
       }
     },
 
     setTheme(themeName) {
-      if (this.currentTheme === themeName) return;
       this.currentTheme = themeName;
 
       if (this._themeTimer) {
         clearInterval(this._themeTimer);
         this._themeTimer = null;
       }
+
+      // Фоновая процедурная музыка выключена по требованию руководителя
+      if (!this.isMusicEnabled) return;
 
       const ctx = this.initContext();
       if (!ctx || this.isMutedState) return;
@@ -877,6 +1052,234 @@
     isBottomSheetOpen: false,
     currentSheet: null,
     radialTargetStackId: null,
+    _toastTimer: null,
+
+    showAdventureToast(message, options) {
+      if (typeof document === 'undefined' || !message) return;
+      const opts = options || {};
+      const layer = this.elements.floatingLayer || document.getElementById('homm5-floating-layer');
+      if (!layer) return;
+
+      const prev = document.getElementById('homm5-adventure-toast');
+      if (prev && prev.parentNode) {
+        prev.parentNode.removeChild(prev);
+      }
+      if (this._toastTimer) {
+        clearTimeout(this._toastTimer);
+        this._toastTimer = null;
+      }
+
+      const toast = document.createElement('div');
+      toast.id = 'homm5-adventure-toast';
+      toast.className = 'homm5-adventure-toast';
+      toast.style.cssText = [
+        'position:absolute',
+        'top:max(54px, calc(env(safe-area-inset-top) + 46px))',
+        'left:50%',
+        'transform:translateX(-50%)',
+        'z-index:96',
+        'max-width:92vw',
+        'background:rgba(10,16,32,0.95)',
+        'border:1px solid #fbbf24',
+        'border-radius:12px',
+        'padding:8px 14px',
+        'color:#fef08a',
+        'font-size:12px',
+        'font-weight:700',
+        'box-shadow:0 6px 22px rgba(0,0,0,0.8), 0 0 14px rgba(251,191,36,0.35)',
+        'text-align:center',
+        'pointer-events:' + (opts.actionLabel ? 'auto' : 'none')
+      ].join(';');
+
+      if (opts.actionLabel && typeof opts.onAction === 'function') {
+        toast.innerHTML = `
+          <div style="margin-bottom:6px;">${message}</div>
+          <button class="homm5-btn homm5-btn-gold" id="btn-toast-action" style="font-size:11px; padding:4px 10px;">
+            ${opts.actionLabel}
+          </button>
+        `;
+      } else {
+        toast.textContent = message;
+      }
+
+      layer.appendChild(toast);
+
+      if (opts.actionLabel && typeof opts.onAction === 'function') {
+        toast.querySelector('#btn-toast-action')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+          opts.onAction();
+        });
+      }
+
+      const dur = opts.durationMs || (opts.actionLabel ? 4600 : 2900);
+      this._toastTimer = setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+        this._toastTimer = null;
+      }, dur);
+    },
+
+    getEffectiveHeroStatsFallback(save) {
+      const s = save || SaveV3.getSaveData();
+      const h = (s && s.hero) || {};
+      if (HOMM5.CombatCore && typeof HOMM5.CombatCore.getHeroEffectiveStats === 'function') {
+        try {
+          const eff = HOMM5.CombatCore.getHeroEffectiveStats();
+          if (eff) {
+            return Object.assign({}, eff, {
+              level: eff.level || Number(h.level) || 1,
+              mana: eff.mana !== undefined ? eff.mana : Math.min(eff.maxMana || 50, Number(h.mana ?? eff.maxMana ?? 50)),
+              movePoints: eff.movePoints !== undefined ? eff.movePoints : (typeof s.movePoints === 'number' ? s.movePoints : (eff.maxMovePoints || 12))
+            });
+          }
+        } catch {}
+      }
+      const advCfg = HOMM5.ADVENTURE_CONFIG || CFG.ADVENTURE_CONFIG || {};
+      let atk = Number(h.attack) || 6;
+      let def = Number(h.defense) || 7;
+      let sp = Number(h.spellPower) || 5;
+      let knw = Number(h.knowledge) || 5;
+      let maxMana = Number(h.maxMana) || 50;
+      let morale = Number(h.morale) || 2;
+      let luck = Number(h.luck) || 2;
+      let maxMp = Number(s.maxMovePoints) || Number(advCfg.baseMovePoints) || 12;
+
+      const skills = Array.isArray(h.unlockedSkills) ? h.unlockedSkills : [];
+      if (skills.includes('logistics')) maxMp = Math.max(maxMp, (Number(advCfg.baseMovePoints) || 12) + 4);
+      if (skills.includes('elrath_blessing')) luck += 1;
+
+      const eq = (s && s.equippedArtifacts) || {};
+      const arts = HOMM5.ARTIFACTS || CFG.ARTIFACTS || {};
+      Object.keys(eq).forEach((slot) => {
+        const aid = eq[slot];
+        const art = aid && arts[aid];
+        if (art && art.stats) {
+          if (art.stats.attack) atk += art.stats.attack;
+          if (art.stats.defense) def += art.stats.defense;
+          if (art.stats.spellPower) sp += art.stats.spellPower;
+          if (art.stats.maxMana) maxMana += art.stats.maxMana;
+          if (art.stats.movePoints && !s.maxMovePoints) maxMp += art.stats.movePoints;
+        }
+      });
+
+      return {
+        attack: atk,
+        defense: def,
+        spellPower: sp,
+        knowledge: knw,
+        maxMana: maxMana,
+        mana: Math.min(maxMana, Number(h.mana ?? maxMana)),
+        morale: morale,
+        luck: luck,
+        maxMovePoints: maxMp,
+        movePoints: typeof s.movePoints === 'number' ? s.movePoints : maxMp
+      };
+    },
+
+    triggerAdvanceAdventureDay() {
+      let res = null;
+      if (HOMM5.CombatCore && typeof HOMM5.CombatCore.advanceAdventureDay === 'function') {
+        res = HOMM5.CombatCore.advanceAdventureDay();
+      } else {
+        const cur = SaveV3.getSaveData();
+        const advCfg = HOMM5.ADVENTURE_CONFIG || CFG.ADVENTURE_CONFIG || {};
+        const eff = this.getEffectiveHeroStatsFallback(cur);
+        let goldGain = 0;
+        let crystalGain = 0;
+        const mines = cur.capturedMines || {};
+        (HOMM5.VALLEY_NODES || CFG.VALLEY_NODES || []).forEach((n) => {
+          if (n.type === 'mine' && mines[n.id]) {
+            if (n.resource === 'gold') goldGain += (n.dailyIncome || 350);
+            if (n.resource === 'crystals') crystalGain += (n.dailyIncome || 1);
+          }
+        });
+        cur.day = (cur.day || 1) + 1;
+        if (cur.day > 7) {
+          cur.day = 1;
+          cur.week = (cur.week || 1) + 1;
+          goldGain += 650;
+        }
+        cur.gold = (cur.gold || 0) + goldGain;
+        cur.crystals = (cur.crystals || 0) + crystalGain;
+        cur.maxMovePoints = eff.maxMovePoints || Number(advCfg.baseMovePoints) || 12;
+        cur.movePoints = cur.maxMovePoints;
+        SaveV3.saveCurrentState(cur);
+        if (HOMM5.World3D && typeof HOMM5.World3D.syncCampaignState === 'function') {
+          HOMM5.World3D.syncCampaignState(cur);
+        }
+        res = {
+          ok: true,
+          goldIncome: goldGain,
+          crystalIncome: crystalGain,
+          movePoints: cur.movePoints,
+          day: cur.day,
+          week: cur.week,
+          message: `⛺ Новый день похода! Восстановлено 🐎${cur.movePoints} ОД${goldGain > 0 || crystalGain > 0 ? ` · Доход шахт: +${goldGain}💰${crystalGain > 0 ? ` +${crystalGain}💎` : ''}` : ''}.`
+        };
+      }
+
+      if (res && res.ok !== false) {
+        Audio.playSFX('capture');
+        const msg = res.message || `⛺ Новый день! Запас хода коня восстановлен${res.goldIncome ? ` (+${res.goldIncome}💰 от шахт)` : ''}.`;
+        this.showAdventureToast(msg);
+        const st = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+        SaveV3.saveCurrentState(st);
+        this.updateHUDFromSave(st);
+      } else if (res && res.message) {
+        this.showAdventureToast(res.message);
+      }
+      return res;
+    },
+
+    executeValleyNodeInteraction(node) {
+      if (!node) return;
+      const save = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+      const isLocked = node.missionIndex && node.missionIndex > (save.maxUnlockedMission || 1);
+      if (isLocked) {
+        Audio.playSFX('defeat');
+        this.showAdventureToast(`🔒 Миссия пока закрыта: победите в предыдущем сражении!`);
+        return;
+      }
+
+      if (node.type === 'treasure') {
+        const completed = save.completedNodes || {};
+        if (completed[node.id]) {
+          this.showAdventureToast(`✅ ${node.name} уже открыт.`);
+          return;
+        }
+        this.openTreasureModal(node);
+        return;
+      }
+
+      if (node.type === 'battle') {
+        this.startBattle(node);
+        return;
+      }
+
+      if (HOMM5.CombatCore && typeof HOMM5.CombatCore.interactValleyNode === 'function') {
+        const res = HOMM5.CombatCore.interactValleyNode(node.id);
+        if (res && res.ok) {
+          if (node.type === 'mine') {
+            Audio.playSFX('capture');
+          } else if (node.type === 'relic' || node.type === 'obelisk') {
+            Audio.playSFX('skill_up');
+          } else {
+            Audio.playSFX('spell_light');
+          }
+          const msg = res.message || `✨ Исследован объект «${node.name}»!`;
+          this.showAdventureToast(msg);
+          this.addCombatLogEntry(msg, 'haven');
+          const cur = HOMM5.CombatCore.getCampaignState();
+          SaveV3.saveCurrentState(cur);
+          this.updateHUDFromSave(cur);
+          if (HOMM5.World3D && typeof HOMM5.World3D.syncCampaignState === 'function') {
+            HOMM5.World3D.syncCampaignState(cur);
+          }
+        } else if (res && res.message) {
+          this.showAdventureToast(res.message);
+        }
+      }
+    },
 
     formatGoldMicro(val) {
       val = Number(val) || 0;
@@ -957,10 +1360,10 @@
       layer.innerHTML = `
         <!-- 0. Слой пространственного Микро-HUD ≤ 4.5% для смартфонов и планшетов -->
         <div id="micro-hud-layer" class="homm5-interactive">
-          <div id="micro-resource-pill" class="homm5-micro-pill" title="Казна Замка (Клик — обзор и миссии)">
+          <div id="micro-resource-pill" class="homm5-micro-pill" title="Казна и Поход (Клик — обзор, лагерь и миссии)">
             <span id="micro-mode-icon">🏰</span>
-            <span>💰 <b id="micro-val-gold" class="micro-gold-val">1.7k</b></span>
-            <span>💎 <b id="micro-val-crystals" class="micro-crystal-val">3</b></span>
+            <span id="micro-gold-wrap">🪙<b id="micro-val-gold" class="micro-gold-val">1.7k</b></span>
+            <span id="micro-sec-wrap">💎<b id="micro-val-crystals" class="micro-crystal-val">3</b></span>
           </div>
           <button id="micro-settings-btn" class="homm5-micro-btn" title="Настройки, звук, сохранения и HUD">
             ⚙️
@@ -1017,7 +1420,10 @@
               🏰 Замок 360°
             </button>
             <button class="homm5-btn" id="btn-mode-valley" title="Исследовать долину миссий и сокровищ">
-              🗺️ Долина
+              🗺️ Поход
+            </button>
+            <button class="homm5-btn homm5-btn-gold" id="btn-open-hero" title="Колесо Умений Ордена и Кукла Реликвий Лорда Годрика">
+              🎖️ Герой
             </button>
             <button class="homm5-btn homm5-btn-crimson" id="btn-mode-combat" title="Быстрый тактический бой на арене">
               ⚔️ Быстрый Бой
@@ -1162,6 +1568,11 @@
       document.getElementById('btn-mode-valley')?.addEventListener('click', () => {
         Audio.playSFX('click');
         this.setMode('valley');
+      });
+
+      document.getElementById('btn-open-hero')?.addEventListener('click', () => {
+        Audio.playSFX('click');
+        this.openBottomSheet('hero');
       });
 
       document.getElementById('btn-mode-combat')?.addEventListener('click', () => {
@@ -1388,9 +1799,27 @@
         const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
 
         if (payload.activeActor.side === 'player' && !this.isAutoCombat) {
+          let validToHighlight = payload.validActions || {};
+          const actUnit = payload.activeActor;
+          const isBallistaTurn = !!(
+            actUnit.isWarMachine ||
+            actUnit.unitId === 'ballista' ||
+            (actUnit.unit && actUnit.unit.isWarMachine) ||
+            ((actUnit.speed === 0 || (actUnit.unit && actUnit.unit.speed === 0)) && (actUnit.isRanged || (actUnit.unit && actUnit.unit.isRanged)))
+          );
+          if (isBallistaTurn && bState && Array.isArray(bState.stacks)) {
+            const enemyTargets = bState.stacks
+              .filter((s) => s.side === 'enemy' && s.count > 0)
+              .map((s) => ({ col: s.col, row: s.row, targetStackId: s.id }));
+            if (!validToHighlight.targets || validToHighlight.targets.length === 0) {
+              validToHighlight = { moves: [], targets: enemyTargets };
+            }
+            this.addCombatLogEntry('🏹 Очередь 3D-Баллисты Ордена: укажите вражеский отряд для осадного залпа!', 'haven');
+          }
+
           if (HOMM5.World3D) {
             if (typeof HOMM5.World3D.highlightCells === 'function') {
-              HOMM5.World3D.highlightCells(payload.validActions);
+              HOMM5.World3D.highlightCells(validToHighlight);
             }
             if (typeof HOMM5.World3D.syncBattleState === 'function') {
               HOMM5.World3D.syncBattleState(bState);
@@ -1582,26 +2011,121 @@
         }
       });
 
+      Bus.on('3d:valleyGroundTap', (payload) => {
+        if (!payload) return;
+        const radial = document.getElementById('radial-action-menu');
+        const radialOpen = radial && !radial.classList.contains('homm5-hidden');
+        if (this.isBottomSheetOpen || radialOpen) {
+          this.closeRadialMenu();
+          if (this.isBottomSheetOpen) this.closeBottomSheet();
+          return;
+        }
+
+        if (HOMM5.CombatCore && typeof HOMM5.CombatCore.moveAdventureHero === 'function') {
+          const res = HOMM5.CombatCore.moveAdventureHero(payload.x, payload.z);
+          if (res && res.ok) {
+            Audio.playSFX('gallop');
+            const st = HOMM5.CombatCore.getCampaignState();
+            SaveV3.saveCurrentState(st);
+            this.updateHUDFromSave(st);
+            if (HOMM5.World3D && typeof HOMM5.World3D.syncCampaignState === 'function') {
+              HOMM5.World3D.syncCampaignState(st);
+            }
+          } else if (res && res.reason === 'no_move_points') {
+            Audio.playSFX('click');
+            this.showAdventureToast('🐎 Ход окончен (0 ОД) — тапните по Всаднику для Нового дня');
+            let hScreen = null;
+            if (HOMM5.World3D && typeof HOMM5.World3D.getActorScreenPosition === 'function') {
+              hScreen = HOMM5.World3D.getActorScreenPosition('adventure_hero');
+            }
+            const sx = (hScreen && hScreen.x !== undefined) ? hScreen.x : (payload.screenX || (typeof window !== 'undefined' ? window.innerWidth / 2 : 400));
+            const sy = (hScreen && hScreen.y !== undefined) ? hScreen.y : (payload.screenY || (typeof window !== 'undefined' ? window.innerHeight / 2 : 300));
+            this.openRadialMenu('adventure_hero', sx, sy, 'adventure_hero');
+          } else if (res && res.message) {
+            this.showAdventureToast(res.message);
+          }
+        }
+      });
+
+      Bus.on('3d:adventureHeroTap', (payload) => {
+        const sx = (payload && payload.screenX !== undefined)
+          ? payload.screenX
+          : (typeof window !== 'undefined' ? window.innerWidth / 2 : 400);
+        const sy = (payload && payload.screenY !== undefined)
+          ? payload.screenY
+          : (typeof window !== 'undefined' ? window.innerHeight / 2 : 300);
+        this.openRadialMenu('adventure_hero', sx, sy, 'adventure_hero');
+      });
+
+      Bus.on('hero:levelUp', (payload) => {
+        Audio.playSFX('skill_up');
+        triggerVibrate([50, 40, 90]);
+        const lvl = (payload && payload.level) || ((SaveV3.getSaveData().hero || {}).level || 2);
+        this.showAdventureToast(
+          `👑 Лорд Годрик достиг ${lvl}-го уровня! Получено +1 очко умений.`,
+          {
+            actionLabel: '🎡 Открыть Колесо Умений',
+            onAction: () => this.openBottomSheet('hero', { section: 'skills' }),
+            durationMs: 5500
+          }
+        );
+        const st = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+        this.updateHUDFromSave(st);
+      });
+
       Bus.on('3d:nodeClick', (payload) => {
+        if (!payload || !payload.nodeId) return;
+        this.closeRadialMenu();
         const nodeId = payload.nodeId;
-        const node = (CFG.VALLEY_NODES || []).find((n) => n.id === nodeId);
+        const node = (HOMM5.VALLEY_NODES || CFG.VALLEY_NODES || []).find((n) => n.id === nodeId);
         if (!node) return;
 
-        if (node.type === 'treasure') {
-          this.openTreasureModal(node);
-        } else if (node.type === 'crystal_mine') {
-          if (HOMM5.CombatCore && typeof HOMM5.CombatCore.interactValleyNode === 'function') {
-            const res = HOMM5.CombatCore.interactValleyNode(nodeId);
-            if (res.ok) {
-              Audio.playSFX('spell_light');
-              this.addCombatLogEntry(res.message, 'haven');
-            } else {
-              alert(res.message);
+        if (this.mode === 'valley' && HOMM5.CombatCore && typeof HOMM5.CombatCore.moveAdventureHero === 'function' && Array.isArray(node.pos3d)) {
+          const st = HOMM5.CombatCore.getCampaignState();
+          const advCfg = HOMM5.ADVENTURE_CONFIG || CFG.ADVENTURE_CONFIG || {};
+          const hPos = st.heroPos || advCfg.startPos || { x: 0, z: 6.5 };
+          const tx = Number(node.pos3d[0]) || 0;
+          const tz = Number(node.pos3d[2]) || 0;
+          const dist = Math.hypot(tx - (Number(hPos.x) || 0), tz - (Number(hPos.z) || 0));
+          const interactR = Number(advCfg.interactionRadius) || 2.6;
+
+          if (dist > interactR) {
+            const mv = HOMM5.CombatCore.moveAdventureHero(tx, tz);
+            if (mv && mv.ok) {
+              Audio.playSFX('gallop');
+              const updated = HOMM5.CombatCore.getCampaignState();
+              SaveV3.saveCurrentState(updated);
+              this.updateHUDFromSave(updated);
+              if (HOMM5.World3D && typeof HOMM5.World3D.syncCampaignState === 'function') {
+                HOMM5.World3D.syncCampaignState(updated);
+              }
+              const newPos = updated.heroPos || { x: tx, z: tz };
+              const remDist = Math.hypot(tx - (Number(newPos.x) || 0), tz - (Number(newPos.z) || 0));
+              if (remDist > 3.2) {
+                this.showAdventureToast(
+                  `🐎 Всадник на пути к «${node.shortTitle || node.name}» (0 ОД) — разбейте лагерь на Новый день!`,
+                  {
+                    actionLabel: '⛺ Новый день',
+                    onAction: () => this.triggerAdvanceAdventureDay()
+                  }
+                );
+                return;
+              }
+            } else if (dist > 3.2) {
+              Audio.playSFX('click');
+              this.showAdventureToast(
+                `🐎 Недостаточно ОД до «${node.shortTitle || node.name}» — разбейте лагерь на Новый день!`,
+                {
+                  actionLabel: '⛺ Разбить лагерь (Новый день)',
+                  onAction: () => this.triggerAdvanceAdventureDay()
+                }
+              );
+              return;
             }
           }
-        } else if (node.type === 'battle') {
-          this.startBattle(node);
         }
+
+        this.executeValleyNodeInteraction(node);
       });
 
       Bus.on('3d:actorTap', (payload) => {
@@ -1706,7 +2230,29 @@
         }
       }
 
+      const curSave = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+      this.syncMicroResourcePill(curSave);
+
       Bus.emit('ui:modeChanged', { mode });
+    },
+
+    syncMicroResourcePill(save) {
+      const s = save || SaveV3.getSaveData();
+      if (!s) return;
+      const pill = document.getElementById('micro-resource-pill');
+      if (!pill) return;
+      const gStr = this.formatGoldMicro(s.gold || 0);
+      const eff = this.getEffectiveHeroStatsFallback(s);
+
+      if (this.mode === 'valley') {
+        const mp = Math.max(0, Math.round(typeof s.movePoints === 'number' ? s.movePoints : (eff.movePoints ?? 12)));
+        pill.innerHTML = `<span id="micro-mode-icon">🗺️</span><span>🪙<b id="micro-val-gold" class="micro-gold-val">${gStr}</b> · 🐎<b id="micro-val-crystals" class="micro-crystal-val">${mp}</b></span>`;
+      } else {
+        const icon = this.mode === 'combat' ? '⚔️' : '🏰';
+        const crys = Number(s.crystals || 0);
+        const dayNum = Number(s.day || 1);
+        pill.innerHTML = `<span id="micro-mode-icon">${icon}</span><span>🪙<b id="micro-val-gold" class="micro-gold-val">${gStr}</b> 💎<b id="micro-val-crystals" class="micro-crystal-val">${crys}</b> Д${dayNum}</span>`;
+      }
     },
 
     toggleLighting() {
@@ -1725,19 +2271,23 @@
       const crystalEl = document.getElementById('val-crystals');
       const manaEl = document.getElementById('val-mana');
       const calEl = document.getElementById('val-calendar');
-      const microGoldEl = document.getElementById('micro-val-gold');
-      const microCrystalEl = document.getElementById('micro-val-crystals');
+      const eff = this.getEffectiveHeroStatsFallback(save);
 
       if (goldEl) goldEl.innerText = Number(save.gold || 0).toLocaleString('ru-RU');
       if (crystalEl) crystalEl.innerText = Number(save.crystals || 0).toLocaleString('ru-RU');
-      if (microGoldEl) microGoldEl.innerText = this.formatGoldMicro(save.gold || 0);
-      if (microCrystalEl) microCrystalEl.innerText = (save.crystals || 0).toString();
+      this.syncMicroResourcePill(save);
 
-      if (manaEl && save.hero) {
-        manaEl.innerText = `${save.hero.mana || 0} / ${save.hero.maxMana || 50}`;
+      if (manaEl) {
+        manaEl.innerText = `${eff.mana ?? 50} / ${eff.maxMana || 50}`;
       }
       if (calEl) {
         calEl.innerText = `📅 Неделя ${save.week || 1}, День ${save.day || 1} (Неделя Грифонов)`;
+      }
+
+      const heroBtn = document.getElementById('btn-open-hero');
+      const spAvail = Number((save.hero && save.hero.skillPoints) || 0);
+      if (heroBtn) {
+        heroBtn.innerHTML = spAvail > 0 ? `🎖️ Герой 🟡` : `🎖️ Герой`;
       }
 
       if (this.isBottomSheetOpen) {
@@ -1745,6 +2295,8 @@
           this.renderCastleSheet();
         } else if (this.currentSheet === 'valley') {
           this.renderValleySheet();
+        } else if (this.currentSheet === 'hero') {
+          this.renderHeroSheet();
         }
       }
 
@@ -1824,21 +2376,38 @@
       if (!content) return;
 
       const save = SaveV3.getSaveData();
-      const nodes = CFG.VALLEY_NODES || [];
+      const nodes = HOMM5.VALLEY_NODES || CFG.VALLEY_NODES || [];
       const completed = save.completedNodes || save.valleyNodesVisited || {};
+      const capturedMines = save.capturedMines || {};
+      const advCfg = HOMM5.ADVENTURE_CONFIG || CFG.ADVENTURE_CONFIG || {};
+      const mp = Math.round(save.movePoints ?? advCfg.baseMovePoints ?? 12);
+      const maxMp = Math.round(save.maxMovePoints ?? advCfg.baseMovePoints ?? 12);
 
-      let listHtml = '<div style="display:flex; flex-direction:column; gap:8px;">';
+      let listHtml = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:8px;">
+          <span style="font-size:11px; color:#cbd5e1;">🐎 ОД: <b style="color:var(--gold-bright);">${mp}/${maxMp}</b></span>
+          <button class="homm5-btn homm5-btn-gold" id="btn-valley-left-camp" style="padding:4px 8px; font-size:10px;">⛺ Новый день</button>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+      `;
       nodes.forEach((node) => {
-        const visited = !!completed[node.id];
+        const isMine = node.type === 'mine';
+        const isCaptured = isMine && !!capturedMines[node.id];
+        const visited = isMine ? isCaptured : !!completed[node.id];
         const isLocked = node.missionIndex && node.missionIndex > (save.maxUnlockedMission || 1);
         const stars = (save.bestStarsByMission && save.bestStarsByMission[node.missionIndex]) || 0;
         const starStr = stars > 0 ? '★'.repeat(stars) : '';
+
+        let subText = node.difficulty || 'Награда готова';
+        if (isLocked) subText = '🔒 Требуется открыть';
+        else if (isCaptured) subText = `🚩 Захвачено (+${node.dailyGold || 350} 💰/д)`;
+        else if (visited) subText = '✅ Завершено';
 
         listHtml += `
           <div class="homm5-list-item ${visited ? 'homm5-visited' : ''}" style="opacity:${isLocked ? 0.5 : 1}; cursor:${isLocked ? 'not-allowed' : 'pointer'}" data-node-id="${node.id}">
             <div class="homm5-item-info">
               <div class="homm5-item-title">${node.icon} ${node.name} ${starStr ? `<span style="color:var(--gold-bright);">${starStr}</span>` : ''}</div>
-              <div class="homm5-item-sub">${visited ? '✅ Завершено' : (isLocked ? '🔒 Требуется открыть' : (node.difficulty || 'Награда готова'))}</div>
+              <div class="homm5-item-sub">${subText}</div>
             </div>
             ${!isLocked && !visited ? `<button class="homm5-btn" style="padding:4px 8px; font-size:10px;">В поход</button>` : ''}
           </div>
@@ -1848,6 +2417,10 @@
 
       content.innerHTML = listHtml;
 
+      document.getElementById('btn-valley-left-camp')?.addEventListener('click', () => {
+        this.triggerAdvanceAdventureDay();
+      });
+
       content.querySelectorAll('.homm5-list-item').forEach((el) => {
         el.addEventListener('click', () => {
           const nid = el.getAttribute('data-node-id');
@@ -1856,20 +2429,10 @@
           const isLocked = node.missionIndex && node.missionIndex > (save.maxUnlockedMission || 1);
           if (isLocked) return;
 
-          if (node.type === 'treasure') {
-            this.openTreasureModal(node);
-          } else if (node.type === 'crystal_mine') {
-            if (HOMM5.CombatCore && typeof HOMM5.CombatCore.interactValleyNode === 'function') {
-              const res = HOMM5.CombatCore.interactValleyNode(node.id);
-              if (res.ok) {
-                Audio.playSFX('spell_light');
-                this.addCombatLogEntry(res.message, 'haven');
-              } else {
-                alert(res.message);
-              }
-            }
-          } else if (node.type === 'battle') {
-            this.startBattle(node);
+          if (Bus && typeof Bus.emit === 'function') {
+            Bus.emit('3d:nodeClick', { nodeId: node.id });
+          } else {
+            this.executeValleyNodeInteraction(node);
           }
         });
       });
@@ -1881,13 +2444,18 @@
       if (title) title.innerText = 'Тактический обзор';
       if (!content) return;
 
+      const eff = this.getEffectiveHeroStatsFallback();
+      const save = SaveV3.getSaveData();
+      const skills = (save.hero && Array.isArray(save.hero.unlockedSkills)) ? save.hero.unlockedSkills : [];
+      const hasBallista = !!(eff.hasBallista || skills.includes('ballista') || skills.includes('war_machines'));
+
       content.innerHTML = `
         <div style="font-size:12px; color:#cbd5e1; line-height:1.5;">
-          <div style="color:var(--gold-bright); font-weight:700; margin-bottom:6px;">Командующий: Лорд Годрик</div>
-          <div>Атака героя: <b>+6</b></div>
-          <div>Защита героя: <b>+7</b></div>
-          <div>Боевой дух: <b>+2</b> (шанс повторного хода)</div>
-          <div>Удача: <b>+2</b> (шанс крита 🍀 УДАЧА!)</div>
+          <div style="color:var(--gold-bright); font-weight:700; margin-bottom:6px;">Командующий: Лорд Годрик (Ур. ${eff.level || 1})</div>
+          <div>Атака героя: <b>+${eff.attack}</b> · Защита: <b>+${eff.defense}</b></div>
+          <div>Сила магии: <b>+${eff.spellPower}</b> · Боевой дух: <b>+${eff.morale}</b></div>
+          <div>Удача: <b>+${eff.luck}</b> (шанс крита 🍀 УДАЧА!)</div>
+          ${hasBallista ? '<div style="color:var(--gold-bright); margin-top:4px;">🏹 Боевая Баллиста на позиции</div>' : ''}
         </div>
         <div style="margin-top:12px; font-size:11px; color:#94a3b8; border-top:1px dashed rgba(212,175,55,0.3); padding-top:8px;">
           Горячие клавиши:<br>
@@ -1923,23 +2491,29 @@
         fTag.className = `homm5-active-faction-tag ${unit.side === 'player' || unit.faction === 'haven' ? 'homm5-tag-haven' : 'homm5-tag-inferno'}`;
       }
       if (uName) uName.innerText = unit.name || 'Воин';
-      if (uCount) uCount.innerText = unit.isHeroActor ? 'Герой' : (unit.count || 1);
+      if (uCount) {
+        const isMachine = !!(unit.isWarMachine || unit.unitId === 'ballista' || (unit.unit && unit.unit.isWarMachine));
+        uCount.innerText = unit.isHeroActor ? 'Герой' : (isMachine ? 'Машина' : (unit.count || 1));
+      }
 
-      const maxHp = unit.maxHp || (unit.hp * (unit.count || 1));
-      const curHp = unit.currentHp ?? maxHp;
-      const pct = Math.max(0, Math.min(100, Math.round((curHp / maxHp) * 100)));
+      const unitBase = unit.unit || {};
+      const maxHp = unit.maxHp || unitBase.hp || ((unit.hp || 20) * (unit.count || 1));
+      const curHp = unit.topHp ?? unit.currentHp ?? maxHp;
+      const pct = Math.max(0, Math.min(100, Math.round((curHp / Math.max(1, maxHp)) * 100)));
 
       if (hpBar) hpBar.style.width = `${pct}%`;
-      if (hpVal) hpVal.innerText = `${curHp} / ${maxHp} ОЗ`;
+      if (hpVal) hpVal.innerText = unit.isHeroActor ? `Мана: ${unit.mana ?? 50} / ${unit.maxMana || 50}` : `${curHp} / ${maxHp} ОЗ`;
       if (initVal) initVal.innerText = `Инициатива: ${unit.initiative || 10}`;
-      if (sAtk) sAtk.innerText = unit.attack || 0;
-      if (sDef) sDef.innerText = unit.defense || 0;
-      if (sSpd) sSpd.innerText = unit.speed || 0;
+      if (sAtk) sAtk.innerText = unit.attack ?? unitBase.attack ?? 0;
+      if (sDef) sDef.innerText = unit.defense ?? unitBase.defense ?? 0;
+      if (sSpd) sSpd.innerText = unit.speed ?? unitBase.speed ?? 0;
 
       if (sShotsWrap && sShots) {
-        if (unit.isRanged) {
+        const isRanged = !!(unit.isRanged || unitBase.isRanged || unitBase.ranged);
+        if (isRanged) {
           sShotsWrap.style.display = 'inline';
-          sShots.innerText = unit.shots || 0;
+          const shotsVal = unit.shotsLeft ?? unit.shots ?? unitBase.shots ?? 0;
+          sShots.innerText = shotsVal >= 90 ? '∞' : shotsVal;
         } else {
           sShotsWrap.style.display = 'none';
         }
@@ -1959,11 +2533,14 @@
         const u = entry.unit || entry;
         const isHaven = u.side === 'player' || u.faction === 'haven';
         const isCurrent = idx === 0;
+        const isMachine = !!(u.isWarMachine || u.unitId === 'ballista' || (u.unit && u.unit.isWarMachine));
+        const countBadge = u.isHero ? '👑' : (isMachine ? '⚙️' : (u.count || 1));
+        const countLabel = u.isHero ? 'Герой' : (isMachine ? 'Машина' : (u.count || 1) + ' шт.');
 
         html += `
-          <div class="homm5-atb-slot ${isHaven ? 'homm5-atb-haven' : 'homm5-atb-inferno'} ${isCurrent ? 'homm5-atb-current' : ''}" data-idx="${idx}" title="${u.name} (${u.isHero ? 'Герой' : (u.count || 1) + ' шт.'})">
+          <div class="homm5-atb-slot ${isHaven ? 'homm5-atb-haven' : 'homm5-atb-inferno'} ${isCurrent ? 'homm5-atb-current' : ''}" data-idx="${idx}" title="${u.name} (${countLabel})">
             <div class="homm5-atb-icon">${u.icon || '🛡️'}</div>
-            <div class="homm5-atb-count">${u.isHero ? '👑' : (u.count || 1)}</div>
+            <div class="homm5-atb-count">${countBadge}</div>
           </div>
         `;
       });
@@ -2196,8 +2773,21 @@
         return;
       }
 
-      const actions = HOMM5.CombatCore.getValidActions(activeActorId);
-      const targetAction = (actions.targets || []).find((t) => t.col === col && t.row === row);
+      const actions = HOMM5.CombatCore.getValidActions(activeActorId) || {};
+      let targetAction = (actions.targets || []).find((t) => t.col === col && t.row === row);
+      if (!targetAction) {
+        const isMachine = !!(
+          activeActor.isWarMachine ||
+          activeActor.unitId === 'ballista' ||
+          (activeActor.unit && activeActor.unit.isWarMachine)
+        );
+        if (isMachine) {
+          const enemyStack = bState.stacks.find((s) => s.count > 0 && s.side === 'enemy' && s.col === col && s.row === row);
+          if (enemyStack) {
+            targetAction = { col, row, targetStackId: enemyStack.id };
+          }
+        }
+      }
       if (targetAction) {
         const moveCell = (targetAction.moveFromCol !== undefined && targetAction.moveFromCol !== null && targetAction.moveFromCol >= 0)
           ? { col: targetAction.moveFromCol, row: targetAction.moveFromRow }
@@ -2304,8 +2894,13 @@
       const attackerId = isHeroAiming ? 'hero_player' : activeActorId;
 
       let moveDist = 0;
-      if (!isHeroAiming && HOMM5.CombatCore && typeof HOMM5.CombatCore.getValidActions === 'function') {
-        const valid = HOMM5.CombatCore.getValidActions(attackerId);
+      const activeStack = (bState.stacks || []).find((s) => s.id === attackerId);
+      const isBallistaAttacker = !!(
+        activeStack &&
+        (activeStack.isWarMachine || activeStack.unitId === 'ballista' || (activeStack.unit && activeStack.unit.isWarMachine))
+      );
+      if (!isHeroAiming && !isBallistaAttacker && HOMM5.CombatCore && typeof HOMM5.CombatCore.getValidActions === 'function') {
+        const valid = HOMM5.CombatCore.getValidActions(attackerId) || {};
         const targetAction = (valid.targets || []).find((t) => t.targetStackId === defender.id);
         if (!targetAction && !this.targetingSpell) {
           this.hideDamagePreview();
@@ -2394,7 +2989,67 @@
 
       petalsContainer.innerHTML = '';
 
-      if (type === 'hero') {
+      if (type === 'adventure_hero') {
+        const save = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+        const spAvail = Number((save && save.hero && save.hero.skillPoints) || 0);
+        const skillsBadge = spAvail > 0
+          ? `<span style="position:absolute; top:-4px; right:-4px; min-width:15px; height:15px; border-radius:50%; background:#fbbf24; color:#0f172a; font-size:9px; font-weight:900; display:flex; align-items:center; justify-content:center; box-shadow:0 0 6px #fde047;">${spAvail}</span>`
+          : '';
+        const petals = [
+          {
+            id: 'new_day',
+            icon: '⛺',
+            label: 'Новый день',
+            dx: 0,
+            dy: -64,
+            badge: '',
+            action: () => this.triggerAdvanceAdventureDay()
+          },
+          {
+            id: 'skills',
+            icon: '🎡',
+            label: 'Умения',
+            dx: 64,
+            dy: 0,
+            badge: skillsBadge,
+            action: () => this.openBottomSheet('hero', { section: 'skills' })
+          },
+          {
+            id: 'relics',
+            icon: '🗡️',
+            label: 'Реликвии',
+            dx: 0,
+            dy: 64,
+            badge: '',
+            action: () => this.openBottomSheet('hero', { section: 'relics' })
+          },
+          {
+            id: 'to_castle',
+            icon: '🏰',
+            label: 'В Замок',
+            dx: -64,
+            dy: 0,
+            badge: '',
+            action: () => this.setMode('castle')
+          }
+        ];
+
+        petals.forEach((p, idx) => {
+          const btn = document.createElement('button');
+          btn.className = 'radial-btn';
+          btn.style.left = `${p.dx}px`;
+          btn.style.top = `${p.dy}px`;
+          btn.style.animationDelay = `${idx * 0.03}s`;
+          btn.innerHTML = `${p.badge}<span class="radial-btn-icon">${p.icon}</span><span class="radial-btn-label">${p.label}</span>`;
+          btn.title = p.label;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.closeRadialMenu();
+            p.action();
+          });
+          petalsContainer.appendChild(btn);
+        });
+      } else if (type === 'hero') {
         // 6 лепестков вокруг Героя (веер действий и заклинаний)
         const petals = [
           { id: 'strike', icon: '🗡️', label: 'Удар', dx: 0, dy: -64, action: () => this.executeHeroStrike() },
@@ -2493,6 +3148,34 @@
       }
     },
 
+    renderSheetTabsHtml(activeTab) {
+      const save = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+      const spAvail = Number((save && save.hero && save.hero.skillPoints) || 0);
+      const dot = spAvail > 0
+        ? `<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#fbbf24; box-shadow:0 0 6px #fde047; margin-left:3px; vertical-align:middle;"></span>`
+        : '';
+      const inCombat = this.mode === 'combat';
+      return `
+        <div class="sheet-tabs" style="display:flex; gap:5px; margin-bottom:10px; flex-wrap:wrap;">
+          <button class="homm5-btn ${activeTab === 'castle' ? 'homm5-btn-gold' : ''}" style="flex:1; padding:6px 6px; font-size:11px;" data-sheet-tab="castle">🏰 Замок</button>
+          <button class="homm5-btn ${activeTab === 'valley' ? 'homm5-btn-gold' : ''}" style="flex:1; padding:6px 6px; font-size:11px;" data-sheet-tab="valley">🗺️ Поход</button>
+          <button class="homm5-btn ${activeTab === 'hero' ? 'homm5-btn-gold' : ''}" style="flex:1; padding:6px 6px; font-size:11px;" data-sheet-tab="hero">🎖️ Герой${dot}</button>
+          ${inCombat ? `<button class="homm5-btn ${activeTab === 'atb' ? 'homm5-btn-gold' : ''}" style="flex:1; padding:6px 6px; font-size:11px;" data-sheet-tab="atb">⚔️ Очередь</button>` : ''}
+          <button class="homm5-btn ${activeTab === 'settings' ? 'homm5-btn-gold' : ''}" style="flex:1; padding:6px 6px; font-size:11px;" data-sheet-tab="settings">⚙️ Меню</button>
+        </div>
+      `;
+    },
+
+    bindSheetTabButtons(content) {
+      if (!content) return;
+      content.querySelectorAll('[data-sheet-tab]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const t = btn.getAttribute('data-sheet-tab');
+          if (t) this.openBottomSheet(t);
+        });
+      });
+    },
+
     openBottomSheet(tab, extraData) {
       const sheet = this.elements.bottomSheet || document.getElementById('homm-bottom-sheet');
       const backdrop = this.elements.bottomSheetBackdrop || document.getElementById('homm-bottom-sheet-backdrop');
@@ -2508,8 +3191,11 @@
         if (title) title.innerText = '🏰 Замок «Коготь Грифона»';
         this.renderCastleSheet(extraData);
       } else if (tab === 'valley') {
-        if (title) title.innerText = '🗺️ Долина Миссий и Сокровищ';
+        if (title) title.innerText = '🗺️ Поход по Изумрудной Долине';
         this.renderValleySheet();
+      } else if (tab === 'hero') {
+        if (title) title.innerText = '🎖️ Лорд Годрик: Умения и Реликвии';
+        this.renderHeroSheet(extraData);
       } else if (tab === 'atb') {
         if (title) title.innerText = '⚔️ Тактическая шкала инициативы (ATB)';
         this.renderAtbSheet();
@@ -2536,6 +3222,232 @@
       Audio.playSFX('click');
     },
 
+    renderHeroSheet(extraData) {
+      const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
+      if (!content) return;
+
+      const save = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+      const hero = (save && save.hero) || {};
+      const eff = this.getEffectiveHeroStatsFallback(save);
+      const advCfg = HOMM5.ADVENTURE_CONFIG || CFG.ADVENTURE_CONFIG || {};
+      const xpPerLevel = Number(advCfg.xpPerLevel) || 500;
+      const curLvl = Number(hero.level) || 1;
+      const curXp = Number(hero.xp) || 0;
+      const xpInLevel = curXp % xpPerLevel;
+      const xpPct = Math.max(0, Math.min(100, Math.round((xpInLevel / xpPerLevel) * 100)));
+      const skillPoints = Math.max(0, Number(hero.skillPoints ?? 0));
+      const unlocked = Array.isArray(hero.unlockedSkills) ? hero.unlockedSkills : [];
+
+      const skillsMap = HOMM5.SKILLS || CFG.SKILLS || {};
+      const skillOrder = HOMM5.SKILL_ORDER || CFG.SKILL_ORDER || Object.keys(skillsMap);
+      const artifactsMap = HOMM5.ARTIFACTS || CFG.ARTIFACTS || {};
+      const ownedArts = Array.isArray(save.ownedArtifacts) ? save.ownedArtifacts : [];
+      const equippedArts = save.equippedArtifacts || { weapon: null, shield: null, helm: null, boots: null };
+
+      const artifactHints = {
+        griffin_blade: 'Добывается в «Реликварии Грифона» или в Миссии III',
+        elrath_aegis: 'Добывается за победу в Миссии II (Осада Пепельных Руин)',
+        crown_of_light: 'Легендарный трофей Миссии IV (Цитадель Пепла — Аграил)',
+        wayfarer_boots: 'Добывается за победу в Миссии I (Пограничная Застава)'
+      };
+
+      const curMp = Math.round(typeof save.movePoints === 'number' ? save.movePoints : (eff.movePoints ?? 12));
+      const maxMp = Math.round(eff.maxMovePoints || save.maxMovePoints || 12);
+
+      let html = '<div class="sheet-hero-section">';
+      html += this.renderSheetTabsHtml('hero');
+
+      html += `
+        <div class="sheet-setting-group" style="flex-direction:column; align-items:stretch; gap:8px; border-color:rgba(251,191,36,0.45);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:28px;">👑</span>
+              <div>
+                <div style="font-weight:800; color:#fbbf24; font-size:14px;">${hero.name || 'Лорд Годрик'} · Уровень ${curLvl}</div>
+                <div style="font-size:11px; color:#cbd5e1;">Опыт: <b>${xpInLevel} / ${xpPerLevel}</b> (всего ${curXp}) · 🐎 ОД: <b>${curMp}/${maxMp}</b></div>
+              </div>
+            </div>
+            <div style="background:rgba(251,191,36,0.16); border:1px solid #fbbf24; border-radius:14px; padding:4px 10px; font-size:11px; font-weight:800; color:#fef08a;">
+              Очки умений: ${skillPoints}
+            </div>
+          </div>
+          <div style="width:100%; height:7px; background:#020617; border:1px solid rgba(212,175,55,0.4); border-radius:4px; overflow:hidden;">
+            <div style="width:${xpPct}%; height:100%; background:linear-gradient(90deg, #f59e0b 0%, #fef08a 100%);"></div>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:space-between; font-size:11px; color:#e2e8f0; padding-top:2px;">
+            <span>⚔️ Атака: <b style="color:#fef08a;">${eff.attack}</b></span>
+            <span>🛡️ Защита: <b style="color:#fef08a;">${eff.defense}</b></span>
+            <span>✨ Колдовство: <b style="color:#c084fc;">${eff.spellPower}</b></span>
+            <span>🔮 Мана: <b style="color:#c084fc;">${eff.mana}/${eff.maxMana}</b></span>
+            <span>🎺 Дух: <b style="color:#34d399;">+${eff.morale}</b></span>
+            <span>🍀 Удача: <b style="color:#34d399;">+${eff.luck}</b></span>
+          </div>
+        </div>
+      `;
+
+      html += `<div class="sheet-subhead" id="hero-skills-section">🎡 Колесо Умений Ордена Порядка</div>`;
+      html += `<div class="skill-wheel-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:8px; margin-top:6px;">`;
+      skillOrder.forEach((sid) => {
+        const sk = skillsMap[sid];
+        if (!sk) return;
+        const isUnlocked = unlocked.includes(sid);
+        const isAvailable = !isUnlocked && skillPoints > 0;
+        const cls = [
+          'skill-wheel-node',
+          isUnlocked ? 'skill-node-unlocked' : '',
+          isAvailable ? 'skill-node-available' : ''
+        ].filter(Boolean).join(' ');
+
+        html += `
+          <div class="${cls}" style="background:rgba(15,23,42,0.75); border:1px solid ${isUnlocked ? '#34d399' : (isAvailable ? '#fbbf24' : 'rgba(255,255,255,0.12)')}; border-radius:8px; padding:9px 11px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+              <div style="display:flex; align-items:center; gap:7px;">
+                <span style="font-size:20px;">${sk.icon || '✨'}</span>
+                <div>
+                  <div style="font-weight:700; font-size:12px; color:#fef08a;">${sk.name}</div>
+                  <div style="font-size:10px; color:#94a3b8;">${sk.branch || 'Орден Порядка'}</div>
+                </div>
+              </div>
+              ${isUnlocked
+                ? `<span style="color:#34d399; font-size:11px; font-weight:800;">✓ Изучено</span>`
+                : `<button class="homm5-btn ${isAvailable ? 'homm5-btn-gold' : ''} btn-unlock-skill" data-skill-id="${sk.id}" ${isAvailable ? '' : 'disabled'} style="font-size:10.5px; padding:4px 8px;">Изучить (1 очко)</button>`}
+            </div>
+            <div style="font-size:11px; color:#cbd5e1; line-height:1.35;">${sk.desc}</div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+
+      html += `<div class="sheet-subhead" id="hero-relics-section" style="margin-top:12px;">🗡️ Экипировка Реликвий Асхана (4 слота)</div>`;
+      html += `<div class="artifact-doll-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:8px; margin-top:6px;">`;
+
+      const slotMeta = [
+        { slot: 'weapon', title: 'Оружие', emptyIcon: '🗡️', artId: 'griffin_blade' },
+        { slot: 'shield', title: 'Щит', emptyIcon: '🛡️', artId: 'elrath_aegis' },
+        { slot: 'helm', title: 'Венец', emptyIcon: '👑', artId: 'crown_of_light' },
+        { slot: 'boots', title: 'Сапоги', emptyIcon: '👢', artId: 'wayfarer_boots' }
+      ];
+
+      slotMeta.forEach((sm) => {
+        const eqId = equippedArts[sm.slot] || null;
+        const art = artifactsMap[eqId || sm.artId] || {};
+        const isOwned = ownedArts.includes(art.id) || !!eqId;
+        const isEquipped = eqId === art.id && !!eqId;
+        const artCls = ['artifact-slot-card', isEquipped ? 'artifact-equipped' : (!isOwned ? 'artifact-locked' : '')].filter(Boolean).join(' ');
+
+        html += `
+          <div class="${artCls}" style="background:rgba(15,23,42,0.75); border:1px solid ${isEquipped ? '#fbbf24' : (isOwned ? '#60a5fa' : 'rgba(255,255,255,0.1)')}; border-radius:8px; padding:9px 11px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:22px; opacity:${isOwned ? '1' : '0.4'};">${art.icon || sm.emptyIcon}</span>
+                <div>
+                  <div style="font-size:10px; color:#94a3b8; text-transform:uppercase;">Слот: ${sm.title}</div>
+                  <div style="font-weight:700; font-size:12px; color:${isOwned ? '#fef08a' : '#94a3b8'};">${art.name || sm.title}</div>
+                </div>
+              </div>
+              ${isOwned ? `
+                <button class="homm5-btn ${isEquipped ? '' : 'homm5-btn-gold'} btn-toggle-artifact" data-artifact-id="${art.id}" data-slot="${sm.slot}" data-equipped="${isEquipped ? '1' : '0'}" style="font-size:10.5px; padding:4px 8px;">
+                  ${isEquipped ? 'Снять' : 'Надеть'}
+                </button>
+              ` : `<span style="font-size:10px; color:#64748b;">Не найдено</span>`}
+            </div>
+            <div style="font-size:11px; color:#cbd5e1; line-height:1.35;">${art.desc || ''}</div>
+            ${!isOwned ? `<div style="font-size:10px; color:#fbbf24;">📍 ${artifactHints[art.id] || 'Добывается в походе по Долине'}</div>` : ''}
+          </div>
+        `;
+      });
+
+      html += `</div></div>`;
+      content.innerHTML = html;
+
+      this.bindSheetTabButtons(content);
+
+      content.querySelectorAll('.btn-unlock-skill').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const sid = btn.getAttribute('data-skill-id');
+          if (!sid) return;
+          let res = null;
+          if (HOMM5.CombatCore && typeof HOMM5.CombatCore.unlockHeroSkill === 'function') {
+            res = HOMM5.CombatCore.unlockHeroSkill(sid);
+          } else {
+            const cur = SaveV3.getSaveData();
+            const h = cur.hero || {};
+            if ((h.skillPoints || 0) > 0) {
+              h.unlockedSkills = Array.from(new Set([...(h.unlockedSkills || []), sid]));
+              h.skillPoints = Math.max(0, (h.skillPoints || 1) - 1);
+              if (sid === 'logistics') {
+                cur.maxMovePoints = (cur.maxMovePoints || 12) + 4;
+                cur.movePoints = (cur.movePoints || 12) + 4;
+              }
+              SaveV3.saveCurrentState(cur);
+              res = { ok: true, message: `Изучено умение «${(skillsMap[sid] && skillsMap[sid].name) || sid}»!` };
+            } else {
+              res = { ok: false, message: 'Недостаточно очков умений!' };
+            }
+          }
+
+          if (res && res.ok) {
+            Audio.playSFX('skill_up');
+            triggerVibrate([35, 25, 65]);
+            const updated = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+            SaveV3.saveCurrentState(updated);
+            this.updateHUDFromSave(updated);
+            if (HOMM5.World3D && typeof HOMM5.World3D.syncCampaignState === 'function') {
+              HOMM5.World3D.syncCampaignState(updated);
+            }
+            this.showAdventureToast(res.message || `✨ Изучено умение «${(skillsMap[sid] && skillsMap[sid].name) || sid}»!`);
+            this.renderHeroSheet();
+          } else if (res && res.message) {
+            Audio.playSFX('defeat');
+            this.showAdventureToast(res.message);
+          }
+        });
+      });
+
+      content.querySelectorAll('.btn-toggle-artifact').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const aid = btn.getAttribute('data-artifact-id');
+          const slot = btn.getAttribute('data-slot');
+          const wasEquipped = btn.getAttribute('data-equipped') === '1';
+          if (!aid) return;
+
+          let res = null;
+          if (HOMM5.CombatCore && typeof HOMM5.CombatCore.equipArtifact === 'function') {
+            if (wasEquipped && typeof HOMM5.CombatCore.unequipArtifact === 'function') {
+              res = HOMM5.CombatCore.unequipArtifact(slot);
+            } else {
+              res = HOMM5.CombatCore.equipArtifact(wasEquipped ? null : aid, slot);
+              if (wasEquipped && res && !res.ok) {
+                res = HOMM5.CombatCore.equipArtifact(aid);
+              }
+            }
+          } else {
+            const cur = SaveV3.getSaveData();
+            cur.equippedArtifacts = cur.equippedArtifacts || { weapon: null, shield: null, helm: null, boots: null };
+            cur.equippedArtifacts[slot] = wasEquipped ? null : aid;
+            SaveV3.saveCurrentState(cur);
+            res = { ok: true };
+          }
+
+          Audio.playSFX('build');
+          const updated = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+          SaveV3.saveCurrentState(updated);
+          this.updateHUDFromSave(updated);
+          if (HOMM5.World3D && typeof HOMM5.World3D.syncCampaignState === 'function') {
+            HOMM5.World3D.syncCampaignState(updated);
+          }
+          this.renderHeroSheet();
+        });
+      });
+
+      if (extraData && (extraData.section === 'relics' || extraData.section === 'artifacts')) {
+        const relEl = content.querySelector('#hero-relics-section');
+        if (relEl && typeof relEl.scrollIntoView === 'function') {
+          setTimeout(() => relEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+        }
+      }
+    },
+
     renderCastleSheet(focusBuildingId) {
       const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
       if (!content) return;
@@ -2547,15 +3459,11 @@
 
       let html = '<div class="sheet-castle-section">';
 
+      html += this.renderSheetTabsHtml('castle');
       html += `
-        <div class="sheet-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
-          <button class="homm5-btn homm5-btn-gold" style="flex:1;" id="btn-sheet-tab-castle">🏰 Замок</button>
-          <button class="homm5-btn" style="flex:1;" id="btn-sheet-tab-valley">🗺️ Долина</button>
-          <button class="homm5-btn" style="flex:1;" id="btn-sheet-tab-settings">⚙️ Меню</button>
-        </div>
         <div class="sheet-nav-actions" style="display:flex; gap:6px; margin-bottom:10px;">
           <button class="homm5-btn homm5-btn-gold" id="btn-sheet-nav-valley" style="flex:1; font-size:11px; padding:6px 8px;">
-            🗺️ Выйти в 3D-Долину Миссий
+            🗺️ Выйти в 3D-Долину Похода
           </button>
           <button class="homm5-btn homm5-btn-crimson" id="btn-sheet-nav-quickbattle" style="flex:1; font-size:11px; padding:6px 8px;">
             ⚔️ Быстрый Бой (Дуэль)
@@ -2575,8 +3483,9 @@
         if (!u) return;
         const inArmy = armyDict[uid] || 0;
         const canRecruit = pool[uid] || 0;
-        const bId = u.dwellingBuildingId || (uid === 'squire' ? 'barracks' : uid === 'crossbowman' ? 'archery_range' : uid === 'griffin' ? 'griffin_tower' : 'monastery');
-        const isBuilt = buildings[bId] || uid === 'squire';
+        const bId = u.dwellingBuildingId || (uid === 'squire' ? 'barracks' : uid === 'crossbowman' ? 'marksmen_tower' : uid === 'griffin' ? 'griffin_bastion' : 'cathedral_of_light');
+        const isBuilt = buildings[bId] || uid === 'squire' || uid === 'crossbowman';
+        const bGrowth = (CFG.BUILDINGS && CFG.BUILDINGS[bId] && CFG.BUILDINGS[bId].weeklyGrowth) || u.weeklyGrowth || 5;
 
         html += `
           <div class="sheet-unit-row">
@@ -2584,7 +3493,7 @@
               <span>${u.icon}</span>
               <div>
                 <b>${u.name}</b>: в армии <b>${inArmy}</b>
-                <div style="font-size: 10px; color: #94a3b8;">Прирост: +${u.weeklyGrowth}/нед. Доступно: ${canRecruit}</div>
+                <div style="font-size: 10px; color: #94a3b8;">Прирост: +${bGrowth}/нед. Доступно: ${canRecruit}</div>
               </div>
             </div>
             <div class="sheet-row-actions">
@@ -2606,7 +3515,7 @@
         const canAfford = (campState.gold >= (b.costGold || 0)) && (campState.crystals >= (b.costCrystal || 0));
 
         html += `
-          <div class="sheet-building-row ${bid === focusBuildingId ? 'style="border-color: #fbbf24;"' : ''}">
+          <div class="sheet-building-row" ${bid === focusBuildingId ? 'style="border-color: #fbbf24;"' : ''}>
             <div class="sheet-row-info">
               <span>${b.icon || '🏛️'}</span>
               <div>
@@ -2635,6 +3544,8 @@
 
       html += '</div>';
       content.innerHTML = html;
+
+      this.bindSheetTabButtons(content);
 
       content.querySelectorAll('.btn-sheet-recruit').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -2678,15 +3589,6 @@
         }
       });
 
-      content.querySelector('#btn-sheet-tab-castle')?.addEventListener('click', () => {
-        this.openBottomSheet('castle');
-      });
-      content.querySelector('#btn-sheet-tab-valley')?.addEventListener('click', () => {
-        this.openBottomSheet('valley');
-      });
-      content.querySelector('#btn-sheet-tab-settings')?.addEventListener('click', () => {
-        this.openBottomSheet('settings');
-      });
       content.querySelector('#btn-sheet-nav-valley')?.addEventListener('click', () => {
         this.closeBottomSheet();
         this.setMode('valley');
@@ -2701,63 +3603,98 @@
       const content = this.elements.bottomSheetContent || document.getElementById('bottom-sheet-content');
       if (!content) return;
 
-      const save = SaveV3.getSaveData();
-      const nodes = CFG.VALLEY_NODES || [];
+      const save = HOMM5.CombatCore ? HOMM5.CombatCore.getCampaignState() : SaveV3.getSaveData();
+      const eff = this.getEffectiveHeroStatsFallback(save);
+      const nodes = HOMM5.VALLEY_NODES || CFG.VALLEY_NODES || [];
       const completed = save.completedNodes || save.valleyNodesVisited || {};
+      const capturedMines = save.capturedMines || {};
+
+      let dailyGold = 0;
+      let dailyCrystals = 0;
+      let capturedCount = 0;
+      nodes.forEach((n) => {
+        if (n.type === 'mine' && (capturedMines[n.id] || completed[n.id])) {
+          capturedCount++;
+          if (n.resource === 'gold') dailyGold += (n.dailyIncome || 350);
+          if (n.resource === 'crystals') dailyCrystals += (n.dailyIncome || 1);
+        }
+      });
+
+      const curMp = Math.round(typeof save.movePoints === 'number' ? save.movePoints : (eff.movePoints ?? 12));
+      const maxMp = Math.round(eff.maxMovePoints || save.maxMovePoints || 12);
 
       let html = '<div class="sheet-valley-section">';
+      html += this.renderSheetTabsHtml('valley');
 
       html += `
-        <div class="sheet-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
-          <button class="homm5-btn" style="flex:1;" id="btn-vsheet-tab-castle">🏰 Замок</button>
-          <button class="homm5-btn homm5-btn-gold" style="flex:1;" id="btn-vsheet-tab-valley">🗺️ Долина</button>
-          <button class="homm5-btn" style="flex:1;" id="btn-vsheet-tab-settings">⚙️ Меню</button>
-        </div>
-        <div class="sheet-nav-actions" style="display:flex; gap:6px; margin-bottom:10px;">
+        <div class="sheet-nav-actions" style="display:flex; gap:6px; margin-bottom:8px;">
           <button class="homm5-btn homm5-btn-gold" id="btn-vsheet-nav-castle" style="flex:1; font-size:11px; padding:6px 8px;">
-            🏰 Вернуться в 3D-Замок
+            🏰 В 3D-Замок
+          </button>
+          <button class="homm5-btn" id="btn-vsheet-nav-valley-3d" style="flex:1; font-size:11px; padding:6px 8px;">
+            🐎 К 3D-Карте Похода
           </button>
           <button class="homm5-btn homm5-btn-crimson" id="btn-vsheet-nav-quickbattle" style="flex:1; font-size:11px; padding:6px 8px;">
             ⚔️ Быстрый Бой
           </button>
         </div>
-        <div class="sheet-res-bar">
-          <span>💰 Золото: <b>${Number(save.gold || 0).toLocaleString('ru-RU')}</b></span>
-          <span>💎 Кристаллы: <b>${save.crystals || 0}</b></span>
-          <span>📅 Неделя ${save.week || 1}, День ${save.day || 1}</span>
+        <div class="sheet-res-bar" style="flex-wrap:wrap; gap:8px;">
+          <span>📅 Нед. ${save.week || 1}, День <b>${save.day || 1}</b></span>
+          <span>🐎 ОД: <b>${curMp}/${maxMp}</b></span>
+          <span>⛏️ Шахты (${capturedCount}): <b>+${dailyGold}💰/д${dailyCrystals > 0 ? `, +${dailyCrystals}💎/д` : ''}</b></span>
         </div>
-        <div class="sheet-subhead">🗺️ Узлы карты и боевые аванпосты</div>
-        <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="margin:8px 0 10px 0;">
+          <button class="homm5-btn homm5-btn-gold" id="btn-vsheet-camp-new-day" style="width:100%; padding:8px 10px; font-size:11.5px;">
+            ⛺ Разбить лагерь (Новый день — восстановить ОД и собрать доход шахт)
+          </button>
+        </div>
+        <div class="sheet-subhead">🗺️ Объекты Долины и Сюжетные Миссии (1..4)</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
       `;
 
       nodes.forEach((node) => {
-        const visited = !!completed[node.id];
+        const isMine = node.type === 'mine';
+        const isMineCaptured = isMine && !!(capturedMines[node.id] || completed[node.id]);
+        const visited = isMine ? isMineCaptured : !!completed[node.id];
         const isLocked = node.missionIndex && node.missionIndex > (save.maxUnlockedMission || 1);
         const stars = (save.bestStarsByMission && save.bestStarsByMission[node.missionIndex]) || 0;
         const starStr = stars > 0 ? '★'.repeat(stars) : '';
 
-        let btnLabel = 'В поход';
-        if (node.type === 'treasure') btnLabel = '💰 Собрать';
-        else if (node.type === 'crystal_mine') btnLabel = '💎 Захватить';
+        let btnLabel = '🐎 В поход';
+        if (node.type === 'treasure') btnLabel = '💰 Открыть';
+        else if (node.type === 'crystal_mine' || node.type === 'mine') btnLabel = '⛏️ Захватить';
+        else if (node.type === 'relic') btnLabel = '🗡️ Реликвия';
+        else if (node.type === 'obelisk') btnLabel = '🗿 Обелиск';
         else if (node.type === 'battle') btnLabel = '⚔️ В бой';
 
+        let subStatus = node.difficulty || node.desc || 'Готово к походу';
+        if (isMineCaptured) {
+          subStatus = `🚩 Знамя Ордена поднято (+${node.dailyIncome} ${node.resource === 'crystals' ? '💎' : '💰'}/день)`;
+        } else if (visited && node.type !== 'battle') {
+          subStatus = '✅ Исследовано';
+        } else if (visited && node.type === 'battle') {
+          subStatus = `✅ Победа одержана (${starStr || '★'}) — можно повторить`;
+        } else if (isLocked) {
+          subStatus = '🔒 Откроется после победы в предыдущей миссии';
+        }
+
+        const canAct = !isLocked && (!visited || node.type === 'battle');
+
         html += `
-          <div class="sheet-unit-row ${visited ? 'homm5-visited' : ''}" style="opacity:${isLocked ? 0.5 : 1};" data-node-id="${node.id}">
+          <div class="sheet-unit-row ${visited ? 'homm5-visited' : ''}" style="opacity:${isLocked ? 0.52 : 1};" data-node-id="${node.id}">
             <div class="sheet-row-info">
               <span style="font-size:20px;">${node.icon}</span>
               <div>
                 <b>${node.name}</b> ${starStr ? `<span style="color:var(--gold-bright);">${starStr}</span>` : ''}
-                <div style="font-size: 10px; color: #94a3b8;">
-                  ${visited ? '✅ Завершено' : (isLocked ? '🔒 Требуется открыть' : (node.difficulty || 'Награда готова'))}
-                </div>
+                <div style="font-size: 10px; color: #94a3b8;">${subStatus}</div>
               </div>
             </div>
             <div class="sheet-row-actions">
-              ${!isLocked && !visited ? `
+              ${canAct ? `
                 <button class="homm5-btn homm5-btn-gold btn-sheet-node-action" data-node-id="${node.id}" style="font-size: 11px; padding: 4px 8px;">
                   ${btnLabel}
                 </button>
-              ` : (visited ? '<span style="color: #34d399; font-size: 11px; font-weight: bold;">✅ Готово</span>' : '<span style="color: #ef4444; font-size: 11px;">🔒 Закрыто</span>')}
+              ` : (visited ? '<span style="color: #34d399; font-size: 11px; font-weight: bold;">✅ Под контролем</span>' : '<span style="color: #ef4444; font-size: 11px;">🔒 Закрыто</span>')}
             </div>
           </div>
         `;
@@ -2766,22 +3703,23 @@
       html += '</div></div>';
       content.innerHTML = html;
 
-      content.querySelector('#btn-vsheet-tab-castle')?.addEventListener('click', () => {
-        this.openBottomSheet('castle');
-      });
-      content.querySelector('#btn-vsheet-tab-valley')?.addEventListener('click', () => {
-        this.openBottomSheet('valley');
-      });
-      content.querySelector('#btn-vsheet-tab-settings')?.addEventListener('click', () => {
-        this.openBottomSheet('settings');
-      });
+      this.bindSheetTabButtons(content);
+
       content.querySelector('#btn-vsheet-nav-castle')?.addEventListener('click', () => {
         this.closeBottomSheet();
         this.setMode('castle');
       });
+      content.querySelector('#btn-vsheet-nav-valley-3d')?.addEventListener('click', () => {
+        this.closeBottomSheet();
+        if (this.mode !== 'valley') this.setMode('valley');
+      });
       content.querySelector('#btn-vsheet-nav-quickbattle')?.addEventListener('click', () => {
         this.closeBottomSheet();
         this.startQuickBattle();
+      });
+      content.querySelector('#btn-vsheet-camp-new-day')?.addEventListener('click', () => {
+        this.triggerAdvanceAdventureDay();
+        this.renderValleySheet();
       });
 
       content.querySelectorAll('.btn-sheet-node-action').forEach((btn) => {
@@ -2792,24 +3730,11 @@
           const isLocked = node.missionIndex && node.missionIndex > (save.maxUnlockedMission || 1);
           if (isLocked) return;
 
-          if (node.type === 'treasure') {
-            this.closeBottomSheet();
-            this.openTreasureModal(node);
-          } else if (node.type === 'crystal_mine') {
-            if (HOMM5.CombatCore && typeof HOMM5.CombatCore.interactValleyNode === 'function') {
-              const res = HOMM5.CombatCore.interactValleyNode(node.id);
-              if (res.ok) {
-                Audio.playSFX('spell_light');
-                this.addCombatLogEntry(res.message, 'haven');
-                this.renderValleySheet();
-              } else {
-                alert(res.message);
-              }
-            }
-          } else if (node.type === 'battle') {
-            this.closeBottomSheet();
-            this.startBattle(node);
+          this.closeBottomSheet();
+          if (this.mode !== 'valley' && node.type !== 'battle') {
+            this.setMode('valley');
           }
+          Bus.emit('3d:nodeClick', { nodeId: node.id });
         });
       });
     },
@@ -2821,6 +3746,7 @@
       const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
       if (!bState || bState.status !== 'active') {
         content.innerHTML = `
+          ${this.renderSheetTabsHtml('atb')}
           <div style="text-align: center; padding: 24px 10px;">
             <div style="font-size: 28px; margin-bottom: 8px;">⚔️</div>
             <div style="font-size: 14px; font-weight: bold; color: #fbbf24; margin-bottom: 6px;">Тактический бой не активен</div>
@@ -2830,6 +3756,7 @@
             </button>
           </div>
         `;
+        this.bindSheetTabButtons(content);
         content.querySelector('#btn-sheet-start-combat')?.addEventListener('click', () => {
           this.closeBottomSheet();
           this.startQuickBattle();
@@ -2841,19 +3768,21 @@
       const activeActor = (bState.stacks || []).find((s) => s.id === activeActorId) || (bState.heroPlayer && bState.heroPlayer.id === activeActorId ? bState.heroPlayer : null);
 
       let html = '<div class="sheet-atb-section">';
+      html += this.renderSheetTabsHtml('atb');
 
       if (activeActor) {
         const isPlayer = activeActor.side === 'player';
-        const maxHp = activeActor.maxHp || (activeActor.hp * (activeActor.count || 1));
-        const curHp = activeActor.currentHp ?? maxHp;
+        const isMachine = !!(activeActor.isWarMachine || activeActor.unitId === 'ballista' || (activeActor.unit && activeActor.unit.isWarMachine));
+        const maxHp = activeActor.maxHp || ((activeActor.unit && activeActor.unit.hp) || activeActor.hp || 20);
+        const curHp = activeActor.topHp ?? activeActor.currentHp ?? maxHp;
         html += `
           <div class="sheet-setting-group" style="border-color: ${isPlayer ? '#60a5fa' : '#ef4444'};">
             <div style="display: flex; align-items: center; gap: 10px;">
               <span style="font-size: 22px;">${activeActor.icon || '🛡️'}</span>
               <div>
                 <b style="color: ${isPlayer ? '#93c5fd' : '#fca5a5'};">${activeActor.name || 'Юнит'}</b>
-                <span style="font-size: 11px; color: #fbbf24;"> (${activeActor.isHeroActor ? 'Герой' : activeActor.count + ' шт.'})</span>
-                <div style="font-size: 11px; color: #cbd5e1;">ОЗ: ${curHp} / ${maxHp} | Инициатива: ${activeActor.initiative || 10}</div>
+                <span style="font-size: 11px; color: #fbbf24;"> (${activeActor.isHeroActor ? 'Герой' : (isMachine ? 'Боевая машина' : activeActor.count + ' шт.')})</span>
+                <div style="font-size: 11px; color: #cbd5e1;">${activeActor.isHeroActor ? `Мана: ${activeActor.mana ?? 50}/${activeActor.maxMana || 50}` : `ОЗ: ${curHp} / ${maxHp}`} | Инициатива: ${activeActor.initiative || 10}</div>
               </div>
             </div>
             ${isPlayer ? `
@@ -2874,8 +3803,11 @@
         html += '<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">';
         queue.forEach((item, idx) => {
           const isPlayer = item.side === 'player';
-          const maxHp = item.maxHp || (item.hp * (item.count || 1));
-          const curHp = item.currentHp ?? maxHp;
+          const stObj = (bState.stacks || []).find((s) => s.id === item.actorId);
+          const isMachine = !!(stObj && (stObj.isWarMachine || stObj.unitId === 'ballista'));
+          const maxHp = (stObj && stObj.maxHp) || item.maxHp || 100;
+          const curHp = (stObj && stObj.topHp) ?? item.currentHp ?? maxHp;
+          const cntLabel = item.isHero ? 'Герой' : (isMachine ? 'Машина' : ((stObj ? stObj.count : item.count) || 1) + ' шт.');
           html += `
             <div class="sheet-unit-row" style="padding: 6px 10px; ${idx === 0 ? 'background: rgba(30, 41, 59, 0.9); border-color: #fbbf24;' : ''}">
               <div class="sheet-row-info">
@@ -2883,11 +3815,11 @@
                 <span style="font-size: 16px;">${item.icon || '🛡️'}</span>
                 <div>
                   <b style="color: ${isPlayer ? '#93c5fd' : '#fca5a5'}; font-size: 12px;">${item.name || 'Юнит'}</b>
-                  <span style="font-size: 10px; color: #cbd5e1;"> (${item.isHero ? 'Герой' : item.count + ' шт.'})</span>
+                  <span style="font-size: 10px; color: #cbd5e1;"> (${cntLabel})</span>
                 </div>
               </div>
               <div style="font-size: 11px; color: #94a3b8;">
-                ОЗ: ${curHp}/${maxHp}
+                ${item.isHero ? '👑 Полководец' : `ОЗ: ${curHp}/${maxHp}`}
               </div>
             </div>
           `;
@@ -2897,6 +3829,8 @@
 
       html += '</div>';
       content.innerHTML = html;
+
+      this.bindSheetTabButtons(content);
 
       content.querySelector('#btn-sheet-defend')?.addEventListener('click', () => {
         this.closeBottomSheet();
@@ -2916,11 +3850,7 @@
       const isMuted = Audio.isMuted();
 
       let html = `
-        <div class="sheet-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
-          <button class="homm5-btn" style="flex:1;" id="btn-ssheet-tab-castle">🏰 Замок</button>
-          <button class="homm5-btn" style="flex:1;" id="btn-ssheet-tab-valley">🗺️ Долина</button>
-          <button class="homm5-btn homm5-btn-gold" style="flex:1;" id="btn-ssheet-tab-settings">⚙️ Меню</button>
-        </div>
+        ${this.renderSheetTabsHtml('settings')}
         <div class="sheet-settings-list">
           <div class="sheet-setting-group">
             <div>
@@ -2982,6 +3912,8 @@
 
       content.innerHTML = html;
 
+      this.bindSheetTabButtons(content);
+
       content.querySelector('#btn-sheet-hud-minimal')?.addEventListener('click', () => {
         this.setHUDMode(true);
       });
@@ -3005,23 +3937,13 @@
       });
 
       content.querySelector('#btn-sheet-quick-save')?.addEventListener('click', () => {
-        this.saveCurrentState();
+        SaveV3.saveCurrentState();
         alert('💾 Прогресс кампании сохранён (Dual-Layer v3)!');
       });
 
       content.querySelector('#btn-sheet-open-saves')?.addEventListener('click', () => {
         this.closeBottomSheet();
         this.openSaveModal();
-      });
-
-      content.querySelector('#btn-ssheet-tab-castle')?.addEventListener('click', () => {
-        this.openBottomSheet('castle');
-      });
-      content.querySelector('#btn-ssheet-tab-valley')?.addEventListener('click', () => {
-        this.openBottomSheet('valley');
-      });
-      content.querySelector('#btn-ssheet-tab-settings')?.addEventListener('click', () => {
-        this.openBottomSheet('settings');
       });
     },
 
@@ -3209,6 +4131,7 @@
     openUnitInspectModal(unitOrStackId) {
       let unit = null;
       let stack = null;
+      const warMachines = HOMM5.WAR_MACHINES || CFG.WAR_MACHINES || {};
 
       if (typeof unitOrStackId === 'string') {
         const bState = HOMM5.CombatCore ? HOMM5.CombatCore.getBattleState() : null;
@@ -3216,13 +4139,18 @@
           stack = bState.stacks.find((s) => s.id === unitOrStackId);
         }
         if (stack) {
-          unit = CFG.UNITS[stack.unitId] || stack;
+          unit = CFG.UNITS[stack.unitId] || warMachines[stack.unitId] || stack;
+        } else if (bState && bState.warMachine && (bState.warMachine.id === unitOrStackId || bState.warMachine.unitId === unitOrStackId)) {
+          stack = bState.warMachine;
+          unit = warMachines[stack.unitId || 'ballista'] || stack;
         } else if (bState && bState.heroPlayer && bState.heroPlayer.id === unitOrStackId) {
           unit = bState.heroPlayer;
         } else if (bState && bState.heroEnemy && bState.heroEnemy.id === unitOrStackId) {
           unit = bState.heroEnemy;
         } else if (CFG.UNITS[unitOrStackId]) {
           unit = CFG.UNITS[unitOrStackId];
+        } else if (warMachines[unitOrStackId]) {
+          unit = warMachines[unitOrStackId];
         }
       } else {
         unit = unitOrStackId;
@@ -3230,10 +4158,17 @@
 
       if (!unit) return;
 
+      const isMachine = !!(unit.isWarMachine || (stack && stack.isWarMachine) || unit.id === 'ballista');
+      const spdVal = unit.speed !== undefined ? unit.speed : 5;
+      const shotsVal = (unit.isRanged || unit.ranged)
+        ? ((unit.shots >= 90 || (stack && stack.shotsLeft >= 90)) ? 'Без лимита' : (stack && stack.shotsLeft !== undefined ? stack.shotsLeft : unit.shots))
+        : 'Ближний бой';
+      const moveTypeLabel = isMachine ? 'Стационарная' : (unit.isFlying ? 'Полёт' : 'Пеший');
+
       const modalHtml = `
         <div class="homm5-panel homm5-modal-window" style="max-width:540px;">
           <div class="homm5-modal-header">
-            <span class="homm5-modal-title">${unit.name} ${unit.tier ? `(Ранг ${unit.tier})` : ''}</span>
+            <span class="homm5-modal-title">${unit.name} ${isMachine ? '(Боевая машина)' : (unit.tier ? `(Ранг ${unit.tier})` : '')}</span>
             <button class="homm5-modal-close" title="Закрыть">✕</button>
           </div>
           <div class="homm5-modal-body">
@@ -3245,14 +4180,14 @@
                 </div>
               </div>
               <div class="homm5-inspect-stats-grid">
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Здоровье (ОЗ):</span><span class="homm5-stat-value">${unit.hp || 100}</span></div>
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Атака:</span><span class="homm5-stat-value">${unit.attack || 0}</span></div>
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Защита:</span><span class="homm5-stat-value">${unit.defense || 0}</span></div>
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Урон:</span><span class="homm5-stat-value">${unit.minDmg ? `${unit.minDmg} - ${unit.maxDmg}` : (unit.attack || 6)}</span></div>
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Инициатива:</span><span class="homm5-stat-value">${unit.initiative || 10}</span></div>
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Скорость:</span><span class="homm5-stat-value">${unit.speed || 5}</span></div>
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Выстрелы:</span><span class="homm5-stat-value">${unit.isRanged ? unit.shots : 'Ближний бой'}</span></div>
-                <div class="homm5-stat-pill"><span class="homm5-stat-label">Тип движения:</span><span class="homm5-stat-value">${unit.isFlying ? 'Полёт' : 'Пеший'}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Здоровье (ОЗ):</span><span class="homm5-stat-value">${unit.hp ?? 100}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Атака:</span><span class="homm5-stat-value">${unit.attack ?? 0}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Защита:</span><span class="homm5-stat-value">${unit.defense ?? 0}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Урон:</span><span class="homm5-stat-value">${unit.minDmg ? `${unit.minDmg} - ${unit.maxDmg}` : (unit.attack ?? 6)}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Инициатива:</span><span class="homm5-stat-value">${unit.initiative ?? 10}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Скорость:</span><span class="homm5-stat-value">${spdVal}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Выстрелы:</span><span class="homm5-stat-value">${shotsVal}</span></div>
+                <div class="homm5-stat-pill"><span class="homm5-stat-label">Тип движения:</span><span class="homm5-stat-value">${moveTypeLabel}</span></div>
               </div>
             </div>
             <div class="homm5-inspect-ability-box">
@@ -3321,8 +4256,14 @@
     },
 
     openVictoryModal(payload) {
-      const stars = payload.stars || 3;
-      const starStr = '★'.repeat(stars) + '<span class="homm5-star-empty">' + '☆'.repeat(3 - stars) + '</span>';
+      const stars = Math.max(1, Math.min(3, payload.stars || 3));
+      const starStr = '★'.repeat(stars) + '<span class="homm5-star-empty">' + '☆'.repeat(Math.max(0, 3 - stars)) + '</span>';
+      const artifacts = HOMM5.ARTIFACTS || CFG.ARTIFACTS || {};
+      const artId = payload.artifactReward || payload.rewardArtifact || null;
+      const artDef = artId ? artifacts[artId] : null;
+      const xpReward = payload.xpReward || payload.rewardXp || 0;
+      const save = SaveV3.getSaveData();
+      const hasSp = ((save.hero && save.hero.skillPoints) || 0) > 0;
 
       const modalHtml = `
         <div class="homm5-panel homm5-modal-window" style="max-width:520px; text-align:center;">
@@ -3334,14 +4275,25 @@
             <div style="font-size:14px; font-weight:700; color:#e2e8f0; margin-bottom:8px;">
               ${payload.missionName || 'Вражеский авангард повержен!'}
             </div>
-            <div style="font-size:12px; color:#94a3b8; line-height:1.5;">
+            <div style="font-size:12px; color:#94a3b8; line-height:1.6;">
               Награда за подвиг:<br>
-              💰 Золото: <b>+${payload.goldReward || 1100}</b><br>
-              💎 Кристаллы Света: <b>+${payload.crystalReward || 3}</b>
+              💰 Золото: <b>+${payload.goldReward || 1100}</b> · 💎 Кристаллы Света: <b>+${payload.crystalReward || 3}</b>
+              ${xpReward > 0 ? `<br>👑 Опыт Лорда Годрика: <b>+${xpReward}</b>` : ''}
+              ${artDef ? `<br><span style="color:var(--gold-bright);">🗡️ Добыта реликвия: <b>${artDef.icon} ${artDef.name}</b></span>` : ''}
             </div>
-            <button class="homm5-btn homm5-btn-gold" id="btn-victory-continue" style="margin-top:14px; padding:10px 20px; font-size:14px;">
-              Вернуться в Замок
-            </button>
+            <div style="display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin-top:14px;">
+              <button class="homm5-btn homm5-btn-gold" id="btn-victory-continue" style="padding:10px 18px; font-size:13px;">
+                🗺️ В Поход
+              </button>
+              <button class="homm5-btn" id="btn-victory-castle" style="padding:10px 16px; font-size:13px;">
+                🏰 В Замок
+              </button>
+              ${(hasSp || artDef) ? `
+                <button class="homm5-btn" id="btn-victory-hero" style="padding:10px 16px; font-size:13px;">
+                  🎖️ Герой${hasSp ? ' •' : ''}
+                </button>
+              ` : ''}
+            </div>
           </div>
         </div>
       `;
@@ -3350,7 +4302,18 @@
 
       document.getElementById('btn-victory-continue')?.addEventListener('click', () => {
         this.closeModal();
+        this.setMode('valley');
+      });
+
+      document.getElementById('btn-victory-castle')?.addEventListener('click', () => {
+        this.closeModal();
         this.setMode('castle');
+      });
+
+      document.getElementById('btn-victory-hero')?.addEventListener('click', () => {
+        this.closeModal();
+        this.setMode('valley');
+        this.openBottomSheet('hero', { section: hasSp ? 'skills' : 'artifacts' });
       });
     },
 

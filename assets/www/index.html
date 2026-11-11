@@ -10,10 +10,10 @@
   <meta name="apple-mobile-web-app-title" content="Герои 5 3D" />
   <meta name="description" content="Герои Меча и Магии V: Эпоха Грифонов — объёмная тактическая 3D-игра на русском языке с живой шкалой инициативы ATB." />
   <title>Герои Меча и Магии V: Эпоха Грифонов — 3D Мини</title>
-  <link rel="manifest" href="manifest.json" />
+  <link rel="manifest" href="manifest.json?v=3.0.0" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/homm5_royal.css" />
+  <link rel="stylesheet" href="css/homm5_royal.css?v=3.0.0" />
   <style>
     html, body {
       margin: 0;
@@ -138,10 +138,10 @@
   </script>
 
   <!-- 2. Изолированные модули роя агентов (1 файл = 1 агент) -->
-  <script src="js/homm5_contract.js"></script>
-  <script src="js/tactical_atb_core.js"></script>
-  <script src="js/world3d_engine.js"></script>
-  <script src="js/ui_audio_save_ru.js"></script>
+  <script src="js/homm5_contract.js?v=3.0.0"></script>
+  <script src="js/tactical_atb_core.js?v=3.0.0"></script>
+  <script src="js/world3d_engine.js?v=3.0.0"></script>
+  <script src="js/ui_audio_save_ru.js?v=3.0.0"></script>
 
   <!-- 3. Диспетчер запуска Lead Architect + Регистрация оффлайн PWA Service Worker -->
   <script>
@@ -150,7 +150,7 @@
 
       if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
         window.addEventListener('load', function () {
-          navigator.serviceWorker.register('./sw.js').catch(function (err) {
+          navigator.serviceWorker.register('./sw.js?v=3.0.0').catch(function (err) {
             console.warn('[PWA SW]', err);
           });
         });

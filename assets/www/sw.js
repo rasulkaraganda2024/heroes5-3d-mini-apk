@@ -1,14 +1,19 @@
-const CACHE_NAME = 'homm5-3d-mini-pwa-v2';
+const CACHE_NAME = 'homm5-3d-mini-pwa-v3.0.0';
 const CORE_ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './css/homm5_royal.css',
+  './css/homm5_royal.css?v=3.0.0',
   './js/vendor/three.min.js',
   './js/homm5_contract.js',
+  './js/homm5_contract.js?v=3.0.0',
   './js/tactical_atb_core.js',
+  './js/tactical_atb_core.js?v=3.0.0',
   './js/world3d_engine.js',
+  './js/world3d_engine.js?v=3.0.0',
   './js/ui_audio_save_ru.js',
+  './js/ui_audio_save_ru.js?v=3.0.0',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png'
@@ -43,6 +48,6 @@ self.addEventListener('fetch', (event) => {
         }
         return res;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
+      .catch(() => caches.match(event.request, { ignoreSearch: true }).then((cached) => cached || caches.match('./index.html')))
   );
 });

@@ -1969,3 +1969,287 @@
   font-size: 11px;
 }
 
+/* ==========================================================================
+   v3.0 КОЛЕСО УМЕНИЙ, КУКЛА РЕЛИКВИЙ АСХАНА И ПОХОДНАЯ ДОЛИНА (0 px² Idle HUD)
+   Все компоненты живут строго внутри выдвижного .homm-bottom-sheet / вкладок!
+   ========================================================================== */
+
+/* Вспомогательное выравнивание вкладок шторки под смартфон 390×844 */
+.sheet-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.sheet-tabs .homm5-btn {
+  position: relative;
+  min-height: 36px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+/* --------------------------------------------------------------------------
+   1. Колесо Умений Героя (Obsidian & Imperial Gold)
+   -------------------------------------------------------------------------- */
+.skill-point-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(180, 83, 9, 0.92) 0%, rgba(120, 53, 15, 0.95) 100%);
+  border: 1px solid var(--gold-bright, #fbbf24);
+  color: #fef9c3;
+  font-family: var(--font-ui-clean);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 12px rgba(251, 191, 36, 0.45);
+  white-space: nowrap;
+}
+
+.skill-wheel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.skill-wheel-node {
+  position: relative;
+  min-height: 44px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(12, 18, 34, 0.96) 0%, rgba(6, 10, 20, 0.98) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.32);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.skill-wheel-node:hover:not(:disabled),
+.skill-wheel-node:active:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(251, 191, 36, 0.7);
+}
+
+.skill-wheel-node .homm5-btn {
+  min-height: 40px;
+  width: 100%;
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+/* Изученное умение — глубокое радиальное имперское золотое свечение */
+.skill-node-unlocked {
+  background:
+    radial-gradient(circle at 22% 20%, rgba(251, 191, 36, 0.24) 0%, rgba(12, 18, 34, 0.96) 68%),
+    linear-gradient(180deg, rgba(24, 20, 12, 0.96) 0%, rgba(8, 12, 24, 0.98) 100%);
+  border-color: var(--gold-bright, #fbbf24);
+  color: #fefce8;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.75),
+    0 0 16px rgba(251, 191, 36, 0.35),
+    inset 0 0 14px rgba(212, 175, 55, 0.22);
+}
+
+/* Доступное к изучению умение — пульсирующая золотая рамка */
+.skill-node-available {
+  border-color: var(--gold-imperial, #d4af37);
+  color: #f8fafc;
+  animation: skillNodeGoldPulse 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes skillNodeGoldPulse {
+  0% {
+    border-color: rgba(212, 175, 55, 0.55);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65), 0 0 6px rgba(251, 191, 36, 0.25);
+  }
+  100% {
+    border-color: #fde047;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.75), 0 0 16px rgba(251, 191, 36, 0.65), inset 0 0 10px rgba(251, 191, 36, 0.16);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   2. Кукла и Слоты Реликвий Асхана (Оружие, Щит, Венец, Сапоги — сетка 2×2)
+   -------------------------------------------------------------------------- */
+.artifact-doll-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.artifact-slot-card {
+  position: relative;
+  min-height: 68px;
+  padding: 10px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(12, 18, 34, 0.94) 0%, rgba(6, 10, 20, 0.97) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  transition: transform 0.16s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  touch-action: manipulation;
+}
+
+.artifact-slot-card .homm5-btn {
+  min-height: 40px;
+  width: 100%;
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+/* Надетая реликвия — благородное золотое сияние */
+.artifact-equipped {
+  background:
+    radial-gradient(circle at 80% 18%, rgba(251, 191, 36, 0.22) 0%, transparent 62%),
+    linear-gradient(180deg, rgba(22, 24, 38, 0.96) 0%, rgba(10, 14, 26, 0.98) 100%);
+  border: 1px solid var(--gold-bright, #fbbf24);
+  color: #fef9c3;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.72),
+    0 0 15px rgba(251, 191, 36, 0.34),
+    inset 0 0 12px rgba(212, 175, 55, 0.18);
+}
+
+/* Пустой / нераскрытый слот куклы — приглушённый чеканный контур */
+.artifact-locked {
+  background: rgba(8, 12, 22, 0.72);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  color: #64748b;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.55);
+  opacity: 0.85;
+}
+
+/* --------------------------------------------------------------------------
+   3. Походная сводка Долины и Шахт внутри шторки (Орден Порядка)
+   -------------------------------------------------------------------------- */
+.adventure-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(15, 28, 56, 0.88) 0%, rgba(8, 14, 28, 0.94) 100%);
+  border: 1px solid rgba(96, 165, 250, 0.42);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6), inset 0 0 12px rgba(37, 99, 235, 0.18);
+  font-size: 11.5px;
+  color: #e2e8f0;
+}
+
+.mine-badge-captured {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.38) 0%, rgba(30, 58, 138, 0.65) 100%);
+  border: 1px solid var(--gold-imperial, #d4af37);
+  color: #fef08a;
+  font-family: var(--font-ui-clean);
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 8px rgba(96, 165, 250, 0.35);
+  white-space: nowrap;
+}
+
+.new-day-banner-btn {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 14px;
+  margin-top: 6px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #1d4ed8 0%, #1e3a8a 52%, #0f172a 100%);
+  border: 1.5px solid var(--gold-bright, #fbbf24);
+  color: #fef9c3;
+  font-family: var(--font-serif-royal);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow:
+    0 5px 16px rgba(0, 0, 0, 0.7),
+    0 0 14px rgba(59, 130, 246, 0.4),
+    inset 0 1px 0 rgba(254, 240, 138, 0.35);
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.new-day-banner-btn:hover:not(:disabled),
+.new-day-banner-btn:active:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.8),
+    0 0 18px rgba(251, 191, 36, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.new-day-banner-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.7);
+}
+
+/* --------------------------------------------------------------------------
+   4. Золотая точка уведомления (7×7 px) внутри вкладки Bottom Sheet / лепестка
+   -------------------------------------------------------------------------- */
+.tab-notify-dot {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold-bright, #fbbf24);
+  box-shadow: 0 0 6px #fde047, 0 0 10px rgba(251, 191, 36, 0.85);
+  pointer-events: none;
+  animation: tabDotPulse 1.5s ease-in-out infinite alternate;
+}
+
+.radial-btn .tab-notify-dot {
+  top: 5px;
+  right: 6px;
+}
+
+@keyframes tabDotPulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+/* Адаптация сеток Колеса Умений и Куклы под узкие экраны (< 350px) */
+@media (max-width: 349px) {
+  .skill-wheel-grid,
+  .artifact-doll-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+

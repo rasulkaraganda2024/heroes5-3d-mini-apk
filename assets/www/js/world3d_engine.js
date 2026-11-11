@@ -132,7 +132,13 @@
 
     // Интерактивные реестры
     buildingsMap: {},      // buildingId -> { group, windows:[], halos:[], flags:[], built: bool }
-    valleyNodesMap: {},    // nodeId -> { group, crystalMesh, ringMesh, beacon, completed: bool, cfg }
+    valleyNodesMap: {},    // nodeId -> { group, focalMesh, runePlate, banner, havenBanner, ringRings:[], completed: bool, captured: bool, cfg }
+    valleyTerrainMesh: null,
+    valleyPathGroup: null,
+    pathDots: [],
+    adventureHero: null,   // { group, riderRoot, legs:[], cape, lance, ringMesh, artifactMeshes:{}, animBusy: bool, pos:{x,z} }
+    fogClouds: {},         // sectorId -> { group, puffs:[], revealed: bool, opacity: number, cfg }
+    equippedArtifactsCache: { weapon: null, shield: null, helm: null, boots: null },
     waterfallParticles: null,
     castleClouds: [],
 
@@ -273,7 +279,7 @@
     return tex;
   }
 
-  function drawUnitBadgeCanvas(canvas, count, hpRatio, isEnemy, hasBuff, isDefending) {
+  function drawUnitBadgeCanvas(canvas, count, ozRatio, isEnemy, hasBuff, isDefending) {
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
@@ -316,9 +322,9 @@
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(barX, barY, barW, barH);
 
-    const safeHp = clamp(hpRatio, 0, 1);
-    ctx.fillStyle = safeHp > 0.5 ? '#22c55e' : safeHp > 0.25 ? '#eab308' : '#ef4444';
-    ctx.fillRect(barX, barY, Math.max(2, barW * safeHp), barH);
+    const safeOz = clamp(ozRatio, 0, 1);
+    ctx.fillStyle = safeOz > 0.5 ? '#22c55e' : safeOz > 0.25 ? '#eab308' : '#ef4444';
+    ctx.fillRect(barX, barY, Math.max(2, barW * safeOz), barH);
 
     // Число воинов
     ctx.font = 'bold 34px Georgia, serif';
@@ -829,15 +835,39 @@
       state.castleClouds.push(cl);
     }
 
-    // --- В. Изумрудная Долина приключений вокруг замка ---
+    // --- В. Изумрудная Долина приключений вокруг замка (v3.0: 10 узлов, конный Лорд Годрик, туман войны) ---
     const valleyTerrain = new THREE.Mesh(new THREE.CylinderGeometry(30, 33, 1.6, 24), M.grassEmerald);
     valleyTerrain.position.set(1, -1.0, 11);
     valleyTerrain.receiveShadow = true;
+    valleyTerrain.userData.hommType = 'valley_ground';
     state.valleyGroup.add(valleyTerrain);
+    state.valleyTerrainMesh = valleyTerrain;
+
+    // Извилистая королевская мощёная тропа между вратами замка и узлами долины
+    const roadTiles = [
+      [0, 6.8], [-3.5, 9.2], [-7.2, 11.2], [-10.5, 13.0],
+      [2.8, 8.8], [5.8, 10.8], [8.5, 13.8], [5.2, 15.8],
+      [1.0, 17.5], [10.8, 17.8], [9.5, 20.5]
+    ];
+    roadTiles.forEach(([rx, rz], rIdx) => {
+      const stonePad = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.15 + (rIdx % 2) * 0.25, 1.3, 0.08, 9),
+        M.stoneLight
+      );
+      stonePad.position.set(rx, -0.18, rz);
+      stonePad.receiveShadow = true;
+      stonePad.userData.hommType = 'valley_ground';
+      state.valleyGroup.add(stonePad);
+    });
+
+    // Группа светящихся изумрудно-золотых путевых точек конного маршрута
+    state.valleyPathGroup = new THREE.Group();
+    state.valleyGroup.add(state.valleyPathGroup);
+    state.pathDots = [];
 
     // Дорожки и рощи низкополигональных сосен/кипарисов
     const treePositions = [
-      [-15, 4], [-14, 13], [-9, 19], [0, 21], [9, 20], [17, 11], [16, 4], [-3, 10], [8, 11]
+      [-15, 4], [-17, 10], [-10, 20], [2, 23], [14, 25], [19, 15], [17, 5], [-3, 10], [8, 8]
     ];
     treePositions.forEach(([tx, tz], idx) => {
       const tree = new THREE.Group();
@@ -854,26 +884,31 @@
       state.valleyGroup.add(tree);
     });
 
-    // Узлы долины (VALLEY_NODES из контракта)
+    // Узлы долины (все 10 узлов VALLEY_NODES из контракта v3.0)
     state.valleyNodesMap = {};
-    const nodes = (HOMM5.CONFIG && HOMM5.CONFIG.VALLEY_NODES) || [];
+    const nodes = (HOMM5.VALLEY_NODES || (HOMM5.CONFIG && HOMM5.CONFIG.VALLEY_NODES)) || [];
     nodes.forEach((nCfg) => {
       const nGrp = new THREE.Group();
       const [nx, ny, nz] = nCfg.pos3d || [0, 0.5, 12];
       nGrp.position.set(nx, ny - 0.5, nz);
 
+      const isBoss = Boolean(nCfg.isBossMission || nCfg.id === 'mission_4');
+      const baseRadius = isBoss ? 2.45 : 1.82;
       const baseRing = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.75, 1.95, 0.22, 16),
+        new THREE.CylinderGeometry(baseRadius, baseRadius + 0.22, 0.24, 16),
         nCfg.type === 'battle' ? M.demonCharcoal : M.stoneMarble
       );
       baseRing.receiveShadow = true;
       nGrp.add(baseRing);
 
       let focalMesh = null;
+      let havenBanner = null;
+      const ringRings = [];
       let ringColor = '#fbbf24';
+      let bannerY = 3.75;
 
       if (nCfg.type === 'treasure') {
-        // Королевский сундук
+        // Королевский сундук Ордена
         const box = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.85, 0.95), M.woodRich);
         box.position.y = 0.55;
         const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 1.35, 8, 1, false, 0, Math.PI), M.goldArmor);
@@ -896,8 +931,183 @@
         nGrp.add(cluster);
         focalMesh = cluster;
         ringColor = '#38bdf8';
+      } else if (nCfg.type === 'mine') {
+        // Золотая Шахта / Кристальный Грот: каменный свод шахты, рельсы с вагонеткой/самоцветами и высокий флагшток
+        const isGoldMine = nCfg.resource === 'gold' || nCfg.id === 'gold_mine';
+        ringColor = isGoldMine ? '#fbbf24' : '#38bdf8';
+
+        const mound = new THREE.Mesh(new THREE.DodecahedronGeometry(1.45, 0), M.cliffRock);
+        mound.scale.set(1.15, 0.95, 1.05);
+        mound.position.set(0, 0.88, -0.35);
+        nGrp.add(mound);
+
+        // Деревянно-каменный портал входа в штольню
+        const postL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.45, 0.24), M.woodRich);
+        postL.position.set(-0.62, 0.78, 0.45);
+        const postR = postL.clone();
+        postR.position.x = 0.62;
+        const beamTop = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.24, 0.32), M.woodRich);
+        beamTop.position.set(0, 1.52, 0.45);
+        const tunnelDark = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.22, 0.35), M.darkIron);
+        tunnelDark.position.set(0, 0.72, 0.32);
+        nGrp.add(postL, postR, beamTop, tunnelDark);
+
+        // Вагонетка с золотой рудой или сияющими кристаллами
+        const cartGrp = new THREE.Group();
+        cartGrp.position.set(0, 0.36, 0.98);
+        const cartBody = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.44, 0.92), M.darkIron);
+        cartGrp.add(cartBody);
+        for (let i = 0; i < 3; i++) {
+          const ore = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.24, 0),
+            isGoldMine ? M.goldBright : M.sapphireGlow
+          );
+          ore.position.set((i - 1) * 0.2, 0.28 + (i % 2) * 0.08, (i - 1) * 0.16);
+          cartGrp.add(ore);
+        }
+        nGrp.add(cartGrp);
+        focalMesh = cartGrp;
+
+        // Высокий флагшток со знаменем Ордена Грифона (включается при захвате шахты)
+        const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 3.65, 8), M.steelArmor);
+        flagPole.position.set(1.12, 1.9, 0.15);
+        const finial = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), M.goldBright);
+        finial.position.set(1.12, 3.82, 0.15);
+        nGrp.add(flagPole, finial);
+
+        const flagGrp = new THREE.Group();
+        flagGrp.position.set(1.12, 3.15, 0.15);
+        const cloth = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.76, 0.07), M.roofSapphire);
+        cloth.position.set(0.6, 0, 0);
+        const trimGold = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.12, 0.08), M.goldBright);
+        trimGold.position.set(0.6, 0.34, 0);
+        const trimBot = trimGold.clone();
+        trimBot.position.y = -0.34;
+        const sunCrest = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.09, 10), M.holyGlow);
+        sunCrest.rotation.x = Math.PI * 0.5;
+        sunCrest.position.set(0.6, 0, 0);
+        const glowAura = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: M.glowSpriteTex,
+            color: 0xfde047,
+            transparent: true,
+            opacity: 0.82,
+            depthWrite: false
+          })
+        );
+        glowAura.scale.set(2.3, 2.3, 1);
+        glowAura.position.set(0.55, 0, 0);
+        flagGrp.add(cloth, trimGold, trimBot, sunCrest, glowAura);
+        flagGrp.visible = false;
+        nGrp.add(flagGrp);
+        havenBanner = flagGrp;
+        bannerY = 4.45;
+      } else if (nCfg.type === 'relic') {
+        // Реликварий Грифона: мраморная ротонда-алтарь со световым столбом и парящим золотым клинком
+        ringColor = '#fde047';
+        const altarStep = new THREE.Mesh(new THREE.CylinderGeometry(1.32, 1.55, 0.36, 12), M.stoneMarble);
+        altarStep.position.y = 0.28;
+        nGrp.add(altarStep);
+
+        for (let p = 0; p < 4; p++) {
+          const ang = (p / 4) * Math.PI * 2 + Math.PI * 0.25;
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 2.25, 8), M.stoneMarble);
+          col.position.set(Math.cos(ang) * 1.08, 1.38, Math.sin(ang) * 1.08);
+          nGrp.add(col);
+        }
+        const archRing = new THREE.Mesh(new THREE.TorusGeometry(1.08, 0.12, 8, 24), M.goldArmor);
+        archRing.rotation.x = Math.PI * 0.5;
+        archRing.position.y = 2.52;
+        nGrp.add(archRing);
+
+        const lightBeam = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.46, 0.62, 2.65, 14, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: 0xfef08a,
+            transparent: true,
+            opacity: 0.42,
+            side: THREE.DoubleSide,
+            depthWrite: false
+          })
+        );
+        lightBeam.position.y = 1.55;
+        nGrp.add(lightBeam);
+
+        const swordRelic = new THREE.Group();
+        swordRelic.position.y = 1.55;
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.25, 0.06), M.holyGlow);
+        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.12), M.goldBright);
+        guard.position.y = -0.42;
+        const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.32, 6), M.woodRich);
+        hilt.position.y = -0.64;
+        swordRelic.add(blade, guard, hilt);
+        swordRelic.rotation.z = 0.18;
+        nGrp.add(swordRelic);
+        focalMesh = swordRelic;
+        bannerY = 4.15;
+      } else if (nCfg.type === 'obelisk') {
+        // Камень Прозрения: высокий рунический обелиск с вращающимися кольцами света
+        ringColor = '#60a5fa';
+        const pedestal = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.48, 1.45), M.stoneDark);
+        pedestal.position.y = 0.34;
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.54, 3.1, 4), M.stoneMarble);
+        shaft.rotation.y = Math.PI * 0.25;
+        shaft.position.y = 2.08;
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.39, 0.68, 4), M.sapphireGlow);
+        tip.rotation.y = Math.PI * 0.25;
+        tip.position.y = 3.96;
+        nGrp.add(pedestal, shaft, tip);
+
+        for (let r = 0; r < 2; r++) {
+          const runeOrbit = new THREE.Mesh(
+            new THREE.TorusGeometry(0.95 + r * 0.28, 0.055, 8, 28),
+            r === 0 ? M.sapphireGlow : M.goldBright
+          );
+          runeOrbit.position.y = 2.15 + r * 0.55;
+          runeOrbit.rotation.x = r === 0 ? 0.65 : -0.55;
+          nGrp.add(runeOrbit);
+          ringRings.push(runeOrbit);
+        }
+        focalMesh = tip;
+        bannerY = 4.85;
+      } else if (isBoss) {
+        // Миссия IV: грозная Цитадель Пепла Аграила (базальтовые башни, лавовый разлом и огненный портал Шио)
+        ringColor = '#f97316';
+        const lavaRift = new THREE.Mesh(new THREE.CylinderGeometry(2.05, 2.15, 0.28, 14), M.lavaGlow);
+        lavaRift.position.y = 0.08;
+        nGrp.add(lavaRift);
+
+        for (const sx of [-1.45, 1.45]) {
+          const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.78, 3.65, 7), M.demonCharcoal);
+          tower.position.set(sx, 1.85, -0.35);
+          tower.castShadow = true;
+          const spire = new THREE.Mesh(new THREE.ConeGeometry(0.68, 1.25, 7), M.demonRed);
+          spire.position.set(sx, 4.25, -0.35);
+          const crownFlame = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), M.lavaGlow);
+          crownFlame.position.set(sx, 5.05, -0.35);
+          nGrp.add(tower, spire, crownFlame);
+        }
+
+        const bridgeArch = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.55, 0.68), M.demonRed);
+        bridgeArch.position.set(0, 3.35, -0.35);
+        const portalRing = new THREE.Mesh(new THREE.TorusGeometry(1.18, 0.14, 8, 24), M.lavaGlow);
+        portalRing.position.set(0, 1.78, -0.32);
+        const portalCore = new THREE.Mesh(
+          new THREE.CircleGeometry(1.12, 20),
+          new THREE.MeshBasicMaterial({ color: 0xff5722, transparent: true, opacity: 0.82, side: THREE.DoubleSide })
+        );
+        portalCore.position.set(0, 1.78, -0.32);
+        nGrp.add(bridgeArch, portalRing, portalCore);
+        ringRings.push(portalRing);
+
+        const bossGuard = createUnitProceduralMesh('pitlord', true);
+        bossGuard.group.scale.setScalar(0.88);
+        bossGuard.group.position.set(0, 0.2, 0.82);
+        nGrp.add(bossGuard.group);
+        focalMesh = portalCore;
+        bannerY = 5.65;
       } else {
-        // Боевая миссия: врата Шио и страж демонов
+        // Боевая миссия 1..3: врата Шио и страж демонов
         ringColor = '#ef4444';
         const archL = new THREE.Mesh(new THREE.BoxGeometry(0.45, 2.6, 0.45), M.demonCharcoal);
         archL.position.set(-1.05, 1.3, -0.3);
@@ -912,7 +1122,6 @@
         portal.position.set(0, 1.35, -0.3);
         nGrp.add(archL, archR, lintel, portal);
 
-        // Мини-страж перед порталом
         const guardId = nCfg.missionIndex === 3 ? 'pitlord' : nCfg.missionIndex === 2 ? 'succubus' : 'hellhound';
         const guard = createUnitProceduralMesh(guardId, true);
         guard.group.scale.setScalar(0.72);
@@ -921,8 +1130,9 @@
         focalMesh = portal;
       }
 
+      const runeSize = isBoss ? 4.8 : 3.8;
       const runePlate = new THREE.Mesh(
-        new THREE.PlaneGeometry(3.8, 3.8),
+        new THREE.PlaneGeometry(runeSize, runeSize),
         new THREE.MeshBasicMaterial({
           map: createRuneRingTexture(ringColor),
           transparent: true,
@@ -934,25 +1144,18 @@
       runePlate.position.y = 0.14;
       nGrp.add(runePlate);
 
-      const NODE_SHORT_TITLES = {
-        chest_1: '💰 Сундук Ордена',
-        crystal_shrine: '💎 Жила Кристаллов',
-        mission_1: '⚔️ Миссия I: Застава',
-        mission_2: '🔥 Миссия II: Руины',
-        mission_3: '👹 Миссия III: Аграил'
-      };
-      const bannerTitle = NODE_SHORT_TITLES[nCfg.id] || `${nCfg.icon || ''} ${nCfg.name}`;
-      const banner = createTextBannerSprite(bannerTitle, ringColor, 5.6, 1.28);
-      banner.position.set(0, 3.65, 0);
+      const bannerTitle = nCfg.shortTitle || `${nCfg.icon || ''} ${nCfg.name}`;
+      const banner = createTextBannerSprite(bannerTitle, ringColor, isBoss ? 6.2 : 5.6, 1.28);
+      banner.position.set(0, bannerY, 0);
       nGrp.add(banner);
 
       // Увеличенные невидимые сферические хитбоксы для безошибочного нажатия пальцем на мобильном
-      const nodeHitbox = createInvisibleTouchHitbox(2.75);
-      nodeHitbox.position.set(0, 1.45, 0);
+      const nodeHitbox = createInvisibleTouchHitbox(isBoss ? 3.1 : 2.75);
+      nodeHitbox.position.set(0, 1.55, 0);
       nGrp.add(nodeHitbox);
 
       const bannerHitbox = createInvisibleTouchHitbox(2.25);
-      bannerHitbox.position.set(0, 3.65, 0);
+      bannerHitbox.position.set(0, bannerY, 0);
       nGrp.add(bannerHitbox);
 
       tagInteractive(nGrp, 'node', nCfg.id, { nodeId: nCfg.id });
@@ -964,14 +1167,472 @@
         focalMesh,
         runePlate,
         banner,
-        completed: false
+        havenBanner,
+        ringRings,
+        completed: false,
+        captured: false
       };
     });
 
-    // По умолчанию включаем стартовые здания
+    // Конный 3D-Герой Лорд Годрик в долине и объёмный 3D-Туман Войны
+    buildAdventureHeroMesh();
+    buildValleyFogClouds();
+
+    // По умолчанию включаем стартовые здания, позицию героя и стартовые сектора тумана
     syncCampaignState({
       buildings: { barracks: true, marksmen_tower: true, griffin_bastion: false, cathedral_of_light: false },
-      completedNodes: []
+      completedNodes: [],
+      capturedMines: {},
+      equippedArtifacts: {},
+      heroPos: (HOMM5.ADVENTURE_CONFIG && HOMM5.ADVENTURE_CONFIG.startPos) || { x: 0, z: 6.5 }
+    });
+  }
+
+  // ============================================================================
+  // 2Б. ВИЗУАЛЬНЫЕ 3D-РЕЛИКВИИ ЛОРДА ГОДРИКА, КОННЫЙ ГЕРОЙ ДОЛИНЫ И ТУМАН ВОЙНЫ
+  // ============================================================================
+
+  function createHeroArtifactAttachments(riderGroup) {
+    const THREE = root.THREE;
+    const M = state.mats;
+    const meshes = {};
+
+    // 1) griffin_blade (weapon) — яркое золотое пламенное лезвие меча в правой руке
+    const weaponGrp = new THREE.Group();
+    weaponGrp.position.set(0.42, 1.36, 0.24);
+    weaponGrp.rotation.x = 0.55;
+    const wHilt = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.32, 6), M.woodRich);
+    const wGuard = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.09, 0.12), M.goldBright);
+    wGuard.position.y = 0.16;
+    const wBlade = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.18, 0.05), M.holyGlow);
+    wBlade.position.y = 0.78;
+    const wFlame = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: M.glowSpriteTex,
+        color: 0xfde047,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false
+      })
+    );
+    wFlame.scale.set(0.95, 1.55, 1);
+    wFlame.position.set(0, 0.82, 0);
+    weaponGrp.add(wHilt, wGuard, wBlade, wFlame);
+    weaponGrp.visible = false;
+    riderGroup.add(weaponGrp);
+    meshes.weapon = weaponGrp;
+
+    // 2) elrath_aegis (shield) — сияющий геральдический щит с золотым солнцем Эльрата на левой руке
+    const shieldGrp = new THREE.Group();
+    shieldGrp.position.set(-0.44, 1.28, 0.18);
+    shieldGrp.rotation.y = -0.35;
+    const sRim = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.3, 0.09, 6), M.goldBright);
+    sRim.rotation.z = Math.PI * 0.5;
+    const sFace = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.24, 0.11, 6), M.roofSapphire);
+    sFace.rotation.z = Math.PI * 0.5;
+    const sunCore = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), M.holyGlow);
+    sunCore.position.x = -0.05;
+    const sunHalo = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.035, 6, 16), M.holyGlow);
+    sunHalo.rotation.y = Math.PI * 0.5;
+    sunHalo.position.x = -0.06;
+    shieldGrp.add(sRim, sFace, sunCore, sunHalo);
+    shieldGrp.visible = false;
+    riderGroup.add(shieldGrp);
+    meshes.shield = shieldGrp;
+
+    // 3) crown_of_light (helm) — парящая золотая корона-нимб Света над шлемом
+    const helmGrp = new THREE.Group();
+    helmGrp.position.set(0, 2.18, -0.05);
+    const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.045, 8, 24), M.holyGlow);
+    haloRing.rotation.x = Math.PI * 0.5;
+    helmGrp.add(haloRing);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const ray = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.24, 4), M.goldBright);
+      ray.position.set(Math.cos(a) * 0.36, 0.12, Math.sin(a) * 0.36);
+      helmGrp.add(ray);
+    }
+    helmGrp.visible = false;
+    riderGroup.add(helmGrp);
+    meshes.helm = helmGrp;
+
+    // 4) wayfarer_boots (boots) — золотые крылатые шпоры и световая аура скорости у стремян
+    const bootsGrp = new THREE.Group();
+    bootsGrp.position.set(0, 0.48, 0.05);
+    for (const dir of [-1, 1]) {
+      const spurWing = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.26, 0.42), M.holyGlow);
+      spurWing.position.set(dir * 0.44, 0.22, -0.06);
+      spurWing.rotation.x = -0.38;
+      spurWing.rotation.z = dir * 0.32;
+      bootsGrp.add(spurWing);
+    }
+    const speedRing = new THREE.Mesh(new THREE.TorusGeometry(0.88, 0.045, 6, 24), M.holyGlow);
+    speedRing.rotation.x = Math.PI * 0.5;
+    speedRing.position.y = -0.28;
+    bootsGrp.add(speedRing);
+    bootsGrp.visible = false;
+    riderGroup.add(bootsGrp);
+    meshes.boots = bootsGrp;
+
+    return meshes;
+  }
+
+  function applyEquippedArtifactsToMeshes(artifactMeshes, equippedObj) {
+    if (!artifactMeshes) return;
+    const eq = equippedObj || {};
+    const hasWeapon = Boolean(eq.weapon === 'griffin_blade' || eq.griffin_blade || eq.weapon);
+    const hasShield = Boolean(eq.shield === 'elrath_aegis' || eq.elrath_aegis || eq.shield);
+    const hasHelm = Boolean(eq.helm === 'crown_of_light' || eq.crown_of_light || eq.helm);
+    const hasBoots = Boolean(eq.boots === 'wayfarer_boots' || eq.wayfarer_boots || eq.boots);
+
+    if (artifactMeshes.weapon) artifactMeshes.weapon.visible = hasWeapon;
+    if (artifactMeshes.shield) artifactMeshes.shield.visible = hasShield;
+    if (artifactMeshes.helm) artifactMeshes.helm.visible = hasHelm;
+    if (artifactMeshes.boots) artifactMeshes.boots.visible = hasBoots;
+  }
+
+  function normalizeEquippedArtifacts(source) {
+    const out = { weapon: null, shield: null, helm: null, boots: null };
+    if (!source) return out;
+    if (Array.isArray(source)) {
+      source.forEach((artId) => {
+        const cfg = HOMM5.ARTIFACTS && HOMM5.ARTIFACTS[artId];
+        if (cfg && cfg.slot) out[cfg.slot] = cfg.id;
+      });
+      return out;
+    }
+    if (typeof source === 'object') {
+      ['weapon', 'shield', 'helm', 'boots'].forEach((slot) => {
+        if (source[slot]) out[slot] = source[slot];
+      });
+      Object.keys(source).forEach((k) => {
+        if (source[k] && HOMM5.ARTIFACTS && HOMM5.ARTIFACTS[k]) {
+          out[HOMM5.ARTIFACTS[k].slot] = k;
+        }
+      });
+    }
+    return out;
+  }
+
+  function refreshAllHeroArtifactVisuals(equippedObj) {
+    if (equippedObj) {
+      state.equippedArtifactsCache = normalizeEquippedArtifacts(equippedObj);
+    }
+    const cache = state.equippedArtifactsCache;
+    if (state.adventureHero && state.adventureHero.artifactMeshes) {
+      applyEquippedArtifactsToMeshes(state.adventureHero.artifactMeshes, cache);
+    }
+    if (state.heroModels.player && state.heroModels.player.userData && state.heroModels.player.userData.artifactMeshes) {
+      applyEquippedArtifactsToMeshes(state.heroModels.player.userData.artifactMeshes, cache);
+    }
+  }
+
+  function buildAdventureHeroMesh() {
+    const THREE = root.THREE;
+    const M = state.mats;
+    const startCfg = (HOMM5.ADVENTURE_CONFIG && HOMM5.ADVENTURE_CONFIG.startPos) || { x: 0, z: 6.5 };
+
+    const heroGrp = new THREE.Group();
+    heroGrp.position.set(startCfg.x, -0.15, startCfg.z);
+
+    // Золотое руническое кольцо под копытами коня
+    const groundRing = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.1, 3.1),
+      new THREE.MeshBasicMaterial({
+        map: createRuneRingTexture('#fde047'),
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false
+      })
+    );
+    groundRing.rotation.x = -Math.PI * 0.5;
+    groundRing.position.y = 0.08;
+    heroGrp.add(groundRing);
+
+    const riderRoot = new THREE.Group();
+    heroGrp.add(riderRoot);
+
+    // Белый боевой конь Ордена Порядка в сине-золотой попоне с 4 анимированными ногами
+    const steedBody = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.62, 1.48), M.whiteFeather);
+    steedBody.position.set(0, 0.86, 0);
+    const barding = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.46, 1.54), M.roofRoyalBlue);
+    barding.position.set(0, 0.76, 0);
+    const goldTrim = new THREE.Mesh(new THREE.BoxGeometry(0.81, 0.1, 1.58), M.goldArmor);
+    goldTrim.position.set(0, 0.55, 0);
+
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.3, 0.72, 7), M.whiteFeather);
+    neck.position.set(0, 1.28, 0.58);
+    neck.rotation.x = 0.48;
+    const horseHead = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.58), M.whiteFeather);
+    horseHead.position.set(0, 1.54, 0.86);
+    horseHead.rotation.x = 0.35;
+    const chamfron = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.14, 0.52), M.goldBright);
+    chamfron.position.set(0, 1.64, 0.88);
+    chamfron.rotation.x = 0.35;
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.68, 6), M.whiteFeather);
+    tail.position.set(0, 0.78, -0.86);
+    tail.rotation.x = -0.55;
+
+    const legs = [];
+    const legCoords = [
+      [-0.24, 0.52], [0.24, 0.52],
+      [-0.24, -0.52], [0.24, -0.52]
+    ];
+    legCoords.forEach(([lx, lz]) => {
+      const legPivot = new THREE.Group();
+      legPivot.position.set(lx, 0.62, lz);
+      const legMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.075, 0.62, 6), M.whiteFeather);
+      legMesh.position.y = -0.28;
+      const hoof = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.095, 0.12, 6), M.goldArmor);
+      hoof.position.y = -0.56;
+      legPivot.add(legMesh, hoof);
+      riderRoot.add(legPivot);
+      legs.push(legPivot);
+    });
+
+    // Рыцарь Лорд Годрик в золочёных латах с развевающимся плащом и копьём-знаменем
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.26, 0.82, 8), M.goldArmor);
+    torso.position.set(0, 1.48, -0.05);
+    const pauldrons = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.2, 0.42), M.goldBright);
+    pauldrons.position.set(0, 1.76, -0.05);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.22, 0.32, 8), M.goldArmor);
+    head.position.set(0, 2.02, -0.05);
+    const plume = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.26, 0.36), M.roofSapphire);
+    plume.position.set(0, 2.24, -0.1);
+
+    const cape = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.92, 0.08), M.havenCloth);
+    cape.position.set(0, 1.38, -0.34);
+    cape.rotation.x = 0.26;
+
+    const lanceGrp = new THREE.Group();
+    lanceGrp.position.set(-0.38, 1.55, 0.08);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 2.75, 6), M.goldArmor);
+    pole.position.y = 0.45;
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.38, 6), M.goldBright);
+    tip.position.y = 1.92;
+    const pennant = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.78, 0.72), M.roofSapphire);
+    pennant.position.set(0, 1.35, -0.38);
+    lanceGrp.add(pole, tip, pennant);
+
+    riderRoot.add(steedBody, barding, goldTrim, neck, horseHead, chamfron, tail, torso, pauldrons, head, plume, cape, lanceGrp);
+
+    // 4 слота визуальных 3D-реликвий на всаднике
+    const artifactMeshes = createHeroArtifactAttachments(riderRoot);
+
+    riderRoot.traverse((ch) => {
+      if (ch.isMesh) {
+        ch.castShadow = true;
+        ch.receiveShadow = true;
+      }
+    });
+
+    const heroBanner = createTextBannerSprite('👑 Лорд Годрик', '#fde047', 4.9, 1.12);
+    heroBanner.position.set(0, 3.85, 0);
+    heroGrp.add(heroBanner);
+
+    // Удобный невидимый сферический тач-хитбокс (R = 2.05 >= 1.5) для лёгкого нажатия пальцем на смартфоне
+    const touchHitbox = createInvisibleTouchHitbox(2.05);
+    touchHitbox.position.set(0, 1.55, 0);
+    heroGrp.add(touchHitbox);
+
+    tagInteractive(heroGrp, 'adventure_hero', 'adventure_hero', { heroId: 'adventure_hero' });
+    state.valleyGroup.add(heroGrp);
+
+    state.adventureHero = {
+      group: heroGrp,
+      riderRoot,
+      legs,
+      cape,
+      lance: lanceGrp,
+      ringMesh: groundRing,
+      artifactMeshes,
+      animBusy: false,
+      pos: { x: startCfg.x, z: startCfg.z }
+    };
+  }
+
+  function buildValleyFogClouds() {
+    const THREE = root.THREE;
+    state.fogClouds = {};
+    const advCfg = HOMM5.ADVENTURE_CONFIG || (HOMM5.CONFIG && HOMM5.CONFIG.ADVENTURE_CONFIG) || {};
+    const sectors = advCfg.fogSectors || [];
+
+    sectors.forEach((sec, sIdx) => {
+      const secGrp = new THREE.Group();
+      secGrp.position.set(sec.x, 2.35, sec.z);
+      const puffs = [];
+      const puffCount = 11;
+      for (let i = 0; i < puffCount; i++) {
+        const ang = (i / puffCount) * Math.PI * 2 + (sIdx * 0.7);
+        const rad = (i === 0 ? 0 : (0.28 + (i % 3) * 0.24)) * (sec.radius || 10);
+        const puffMat = new THREE.MeshStandardMaterial({
+          color: 0xcbd5e1,
+          emissive: 0x1e293b,
+          emissiveIntensity: 0.35,
+          roughness: 0.95,
+          transparent: true,
+          opacity: sec.defaultRevealed ? 0.0 : 0.84,
+          depthWrite: false,
+          flatShading: true
+        });
+        const puff = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(2.6 + (i % 3) * 1.05, 0),
+          puffMat
+        );
+        puff.scale.set(1.35, 0.58, 1.25);
+        puff.position.set(
+          Math.cos(ang) * rad,
+          (i % 2) * 0.55,
+          Math.sin(ang) * rad
+        );
+        puff.userData = {
+          baseX: puff.position.x,
+          baseY: puff.position.y,
+          baseZ: puff.position.z,
+          phase: i * 0.8 + sIdx
+        };
+        secGrp.add(puff);
+        puffs.push(puff);
+      }
+
+      secGrp.visible = !sec.defaultRevealed;
+      state.valleyGroup.add(secGrp);
+      state.fogClouds[sec.id] = {
+        id: sec.id,
+        cfg: sec,
+        group: secGrp,
+        puffs,
+        revealed: Boolean(sec.defaultRevealed),
+        opacity: sec.defaultRevealed ? 0.0 : 0.84
+      };
+    });
+  }
+
+  function clearValleyPathDots() {
+    if (!state.valleyPathGroup) return;
+    while (state.valleyPathGroup.children.length > 0) {
+      const ch = state.valleyPathGroup.children[0];
+      state.valleyPathGroup.remove(ch);
+      if (ch.geometry) ch.geometry.dispose();
+      if (ch.material) ch.material.dispose();
+    }
+    state.pathDots = [];
+  }
+
+  function spawnValleyPathDots(fromPos, toPos) {
+    if (!state.valleyPathGroup || !hasThree()) return;
+    const THREE = root.THREE;
+    clearValleyPathDots();
+
+    const dx = toPos.x - fromPos.x;
+    const dz = toPos.z - fromPos.z;
+    const dist = Math.hypot(dx, dz);
+    const steps = clamp(Math.ceil(dist / 1.35), 3, 18);
+
+    for (let i = 1; i <= steps; i++) {
+      const r = i / steps;
+      const isFinal = i === steps;
+      const dotMat = new THREE.MeshBasicMaterial({
+        color: isFinal ? 0xfde047 : 0x34d399,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false
+      });
+      const dot = new THREE.Mesh(
+        isFinal ? new THREE.RingGeometry(0.32, 0.58, 16) : new THREE.CircleGeometry(0.24, 12),
+        dotMat
+      );
+      dot.rotation.x = -Math.PI * 0.5;
+      dot.position.set(lerp(fromPos.x, toPos.x, r), -0.06, lerp(fromPos.z, toPos.z, r));
+      state.valleyPathGroup.add(dot);
+      state.pathDots.push(dot);
+    }
+  }
+
+  function animateAdventureHeroMove(fromPos, toPos, onComplete) {
+    const done = typeof onComplete === 'function' ? onComplete : function () {};
+    if (!state.initialized || !hasThree() || !state.adventureHero || !toPos) {
+      done();
+      return;
+    }
+    const THREE = root.THREE;
+    const hero = state.adventureHero;
+    const startX = (fromPos && typeof fromPos.x === 'number') ? fromPos.x : hero.pos.x;
+    const startZ = (fromPos && typeof fromPos.z === 'number') ? fromPos.z : hero.pos.z;
+    const endX = typeof toPos.x === 'number' ? toPos.x : startX;
+    const endZ = typeof toPos.z === 'number' ? toPos.z : startZ;
+
+    const dx = endX - startX;
+    const dz = endZ - startZ;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.05) {
+      hero.pos.x = endX;
+      hero.pos.z = endZ;
+      hero.group.position.set(endX, -0.15, endZ);
+      done();
+      return;
+    }
+
+    hero.animBusy = true;
+    hero.pos.x = endX;
+    hero.pos.z = endZ;
+
+    // Светящиеся изумрудно-золотые путевые точки маршрута и поворот скакуна по курсу
+    spawnValleyPathDots({ x: startX, z: startZ }, { x: endX, z: endZ });
+    hero.riderRoot.rotation.y = Math.atan2(dx, dz);
+
+    const durSec = clamp(0.42 + dist * 0.018, 0.42, 0.65);
+    const strideCycles = Math.max(2, Math.round(dist * 0.85));
+
+    state.tweens.push({
+      age: 0,
+      duration: durSec,
+      update(t) {
+        const e = easeInOutQuad(t);
+        const cx = lerp(startX, endX, e);
+        const cz = lerp(startZ, endZ, e);
+        const gallopPhase = t * Math.PI * 2 * strideCycles;
+        const bounce = Math.abs(Math.sin(gallopPhase * 0.5)) * 0.28;
+
+        hero.group.position.set(cx, -0.15, cz);
+        hero.riderRoot.position.y = bounce;
+        hero.riderRoot.rotation.x = Math.sin(gallopPhase) * 0.11;
+
+        if (hero.legs && hero.legs.length === 4) {
+          hero.legs[0].rotation.x = Math.sin(gallopPhase) * 0.68;
+          hero.legs[1].rotation.x = Math.sin(gallopPhase + 0.7) * 0.68;
+          hero.legs[2].rotation.x = -Math.sin(gallopPhase) * 0.68;
+          hero.legs[3].rotation.x = -Math.sin(gallopPhase + 0.7) * 0.68;
+        }
+        if (hero.cape) {
+          hero.cape.rotation.x = 0.48 + Math.sin(gallopPhase * 1.5) * 0.18;
+        }
+
+        // Растворение пройденных точек маршрута и золотистые пылинки из-под копыт
+        state.pathDots.forEach((dot, idx) => {
+          const dotProg = (idx + 1) / Math.max(1, state.pathDots.length);
+          if (e >= dotProg && dot.material) {
+            dot.material.opacity = Math.max(0, 0.92 * (1 - (e - dotProg) * 3.2));
+          }
+        });
+
+        if (Math.random() < 0.55) {
+          spawnBurstParticles(new THREE.Vector3(cx, 0.05, cz), 0xfde047, 1, 0.42, 0.85);
+        }
+      },
+      complete() {
+        hero.group.position.set(endX, -0.15, endZ);
+        hero.riderRoot.position.y = 0;
+        hero.riderRoot.rotation.x = 0;
+        if (hero.legs) {
+          hero.legs.forEach((l) => { l.rotation.x = 0; });
+        }
+        if (hero.cape) hero.cape.rotation.x = 0.26;
+        hero.animBusy = false;
+        clearValleyPathDots();
+        spawnBurstParticles(new THREE.Vector3(endX, 0.12, endZ), 0x34d399, 8, 0.65, 1.35);
+        done();
+      }
     });
   }
 
@@ -1221,6 +1882,70 @@
         animParts.floatingOrbs.push(orb);
       }
       bodyGrp.add(skirt, corset, head);
+    } else if (unitId === 'ballista') {
+      // Осадная 3D-Баллиста Ордена Порядка: колёсный лафет с золотыми накладками, торсионные плечи лука, тетива и светящийся золотой болт
+      const carriage = new THREE.Group();
+      carriage.position.y = 0.28;
+
+      const mainBeam = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.26, 1.56), M.woodRich);
+      mainBeam.position.set(0, 0.34, 0.05);
+      const rearCross = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.18, 0.28), M.woodRich);
+      rearCross.position.set(0, 0.22, -0.52);
+      const frontCross = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.24, 0.34), M.steelArmor);
+      frontCross.position.set(0, 0.38, 0.56);
+      const goldShield = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.42, 0.1), M.goldBright);
+      goldShield.position.set(0, 0.46, 0.74);
+
+      carriage.add(mainBeam, rearCross, frontCross, goldShield);
+
+      // 4 окованных сталью колеса с золотыми втулками
+      for (const wx of [-0.56, 0.56]) {
+        for (const wz of [-0.48, 0.46]) {
+          const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.12, 12), M.woodRich);
+          wheel.rotation.z = Math.PI * 0.5;
+          wheel.position.set(wx, 0.08, wz);
+          const rim = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.04, 6, 14), M.steelArmor);
+          rim.rotation.y = Math.PI * 0.5;
+          rim.position.set(wx, 0.08, wz);
+          const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.16, 8), M.goldArmor);
+          hub.rotation.z = Math.PI * 0.5;
+          hub.position.set(wx, 0.08, wz);
+          carriage.add(wheel, rim, hub);
+        }
+      }
+
+      // Торсионные катушки, мощные плечи лука и натянутая тетива
+      const bowAssembly = new THREE.Group();
+      bowAssembly.position.set(0, 0.54, 0.56);
+      for (const dir of [-1, 1]) {
+        const coil = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.44, 8), M.goldArmor);
+        coil.position.set(dir * 0.48, 0, 0);
+        const armLimb = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.09, 0.14), M.steelArmor);
+        armLimb.position.set(dir * 0.84, 0.04, -0.18);
+        armLimb.rotation.y = dir * 0.38;
+        const stringHalf = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.88, 5), M.goldBright);
+        stringHalf.rotation.z = Math.PI * 0.5;
+        stringHalf.rotation.y = -dir * 0.36;
+        stringHalf.position.set(dir * 0.58, 0.05, -0.52);
+        bowAssembly.add(coil, armLimb, stringHalf);
+      }
+
+      // Заряженный светящийся золотой осадный болт на направляющем ложе
+      const siegeBolt = new THREE.Group();
+      siegeBolt.position.set(0, 0.58, 0.26);
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.38, 6), M.goldArmor);
+      shaft.rotation.x = Math.PI * 0.5;
+      const boltHead = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.42, 6), M.holyGlow);
+      boltHead.rotation.x = Math.PI * 0.5;
+      boltHead.position.z = 0.82;
+      const fletch = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.05, 0.24), M.roofSapphire);
+      fletch.position.z = -0.58;
+      siegeBolt.add(shaft, boltHead, fletch);
+
+      carriage.add(bowAssembly, siegeBolt);
+      animParts.weaponArm = carriage;
+      animParts.siegeBolt = siegeBolt;
+      bodyGrp.add(carriage);
     } else {
       // Пещерный Владыка (pitlord): массивный рогатый демон с пылающим рунным мечом
       const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.38, 1.15, 8), M.demonCharcoal);
@@ -1311,6 +2036,7 @@
       banner.position.set(-0.38, 2.45, -0.5);
 
       rider.add(steed, barding, neck, knight, crown, pole, banner);
+      grp.userData.artifactMeshes = createHeroArtifactAttachments(rider);
     } else {
       // Аграил Пепельный в рогатом доспехе с огненной аурой и посохом Хаоса
       const mount = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.68, 1.42), M.demonCharcoal);
@@ -1460,14 +2186,19 @@
     built.group.userData.side = unitSide;
     tagInteractive(built.group, 'unit', stackId, { stackId, side: unitSide });
 
-    const unitCfg = (HOMM5.CONFIG.UNITS && HOMM5.CONFIG.UNITS[stack.unitId]) || {};
+    const unitCfg =
+      (HOMM5.CONFIG.UNITS && HOMM5.CONFIG.UNITS[stack.unitId]) ||
+      (HOMM5.WAR_MACHINES && HOMM5.WAR_MACHINES[stack.unitId]) ||
+      (HOMM5.CONFIG.WAR_MACHINES && HOMM5.CONFIG.WAR_MACHINES[stack.unitId]) ||
+      {};
     return {
       id: stackId,
       unitId: stack.unitId,
       side: unitSide,
       isEnemy,
+      isWarMachine: Boolean(stack.isWarMachine || unitCfg.isWarMachine || stack.unitId === 'ballista'),
       isFlying: Boolean(stack.isFlying || unitCfg.isFlying),
-      isRanged: Boolean(stack.isRanged || unitCfg.isRanged),
+      isRanged: Boolean(stack.isRanged || unitCfg.isRanged || unitCfg.ranged),
       group: built.group,
       animParts: built.animParts,
       badgeCanvas,
@@ -1614,6 +2345,24 @@
     state.heroModels.enemy.position.set(boardW * 0.5 + 2.35, 0, 0);
     state.combatGroup.add(state.heroModels.enemy);
 
+    // Синхронизируем 3D-реликвии Лорда Годрика на боевом постаменте
+    const eqFromBattle = battleState && (
+      battleState.equippedArtifacts ||
+      (battleState.heroPlayer && battleState.heroPlayer.equippedArtifacts)
+    );
+    if (eqFromBattle) {
+      refreshAllHeroArtifactVisuals(eqFromBattle);
+    } else if (HOMM5.CombatCore && typeof HOMM5.CombatCore.getCampaignState === 'function') {
+      const cSt = HOMM5.CombatCore.getCampaignState();
+      if (cSt && cSt.equippedArtifacts) {
+        refreshAllHeroArtifactVisuals(cSt.equippedArtifacts);
+      } else {
+        refreshAllHeroArtifactVisuals();
+      }
+    } else {
+      refreshAllHeroArtifactVisuals();
+    }
+
     if (battleState) {
       // Препятствия
       const obs = battleState.obstacles || [];
@@ -1666,10 +2415,14 @@
         actor.group.position.set(wp.x, wp.y, wp.z);
       }
 
-      const unitCfg = (HOMM5.CONFIG.UNITS && HOMM5.CONFIG.UNITS[st.unitId]) || { hp: 20 };
-      const maxHpPerUnit = st.maxHp || unitCfg.hp || 20;
-      const topHp = st.currentHp !== undefined ? st.currentHp : (st.topHp !== undefined ? st.topHp : maxHpPerUnit);
-      const hpRatio = clamp(topHp / Math.max(1, maxHpPerUnit), 0, 1);
+      const unitCfg =
+        (HOMM5.CONFIG.UNITS && HOMM5.CONFIG.UNITS[st.unitId]) ||
+        (HOMM5.WAR_MACHINES && HOMM5.WAR_MACHINES[st.unitId]) ||
+        (HOMM5.CONFIG.WAR_MACHINES && HOMM5.CONFIG.WAR_MACHINES[st.unitId]) ||
+        { hp: 20 };
+      const maxOzPerUnit = st.maxHp || unitCfg.hp || 20;
+      const topOz = st.currentHp !== undefined ? st.currentHp : (st.topHp !== undefined ? st.topHp : maxOzPerUnit);
+      const ozRatio = clamp(topOz / Math.max(1, maxOzPerUnit), 0, 1);
 
       const isDefending = Boolean(
         st.defending || st.isDefending ||
@@ -1683,10 +2436,10 @@
       actor.shieldSphere.visible = Boolean(isDefending || st.divineShieldTurns > 0);
       actor.buffHalo.visible = hasLightBuff;
 
-      const sig = `${st.count}|${hpRatio.toFixed(2)}|${isDefending ? 1 : 0}|${hasLightBuff ? 1 : 0}`;
+      const sig = `${st.count}|${ozRatio.toFixed(2)}|${isDefending ? 1 : 0}|${hasLightBuff ? 1 : 0}`;
       if (actor.lastSignature !== sig) {
         actor.lastSignature = sig;
-        drawUnitBadgeCanvas(actor.badgeCanvas, st.count, hpRatio, actor.isEnemy, hasLightBuff, isDefending);
+        drawUnitBadgeCanvas(actor.badgeCanvas, st.count, ozRatio, actor.isEnemy, hasLightBuff, isDefending);
         actor.badgeTex.needsUpdate = true;
       }
 
@@ -1697,6 +2450,12 @@
         activeRingPlaced = true;
       }
     });
+
+    if (battleState.equippedArtifacts || (battleState.heroPlayer && battleState.heroPlayer.equippedArtifacts)) {
+      refreshAllHeroArtifactVisuals(
+        battleState.equippedArtifacts || battleState.heroPlayer.equippedArtifacts
+      );
+    }
 
     if (!activeRingPlaced && state.activeRing) {
       state.activeRing.visible = false;
@@ -1963,30 +2722,72 @@
       });
     };
 
-    const rangedShot = Boolean(options.isRanged || options.isHeroAttack || (attacker && attacker.isRanged));
+    const isBallistaShot = Boolean(attacker && attacker.unitId === 'ballista');
+    const rangedShot = Boolean(isBallistaShot || options.isRanged || options.isHeroAttack || (attacker && attacker.isRanged));
 
     if (rangedShot) {
-      // Светящийся арбалетный болт / сгусток адского пламени по дуге со шлейфом
+      // Отдача лафета 3D-Баллисты при осадном залпе
+      if (isBallistaShot && attacker && attacker.animParts.weaponArm) {
+        const carriageObj = attacker.animParts.weaponArm;
+        const boltObj = attacker.animParts.siegeBolt;
+        const baseZ = carriageObj.position.z;
+        if (boltObj) boltObj.visible = false;
+        spawnBurstParticles(startWorld, 0xfde047, 10, 0.75, 1.35);
+
+        state.tweens.push({
+          age: 0,
+          duration: 0.36,
+          update(t) {
+            carriageObj.position.z = baseZ - Math.sin(t * Math.PI) * 0.34;
+          },
+          complete() {
+            carriageObj.position.z = baseZ;
+            if (boltObj) boltObj.visible = true;
+          }
+        });
+      }
+
+      // Светящийся осадный золотой болт Баллисты / арбалетный болт / сгусток адского пламени по дуге со шлейфом
       const isFire = isEnemyAttacker || (attacker && attacker.unitId === 'succubus');
-      const projMesh = new THREE.Mesh(
-        isFire ? new THREE.SphereGeometry(0.24, 8, 8) : new THREE.ConeGeometry(0.12, 0.72, 6),
-        isFire ? state.mats.lavaGlow : state.mats.sapphireGlow
-      );
+      let projMesh;
+      if (isBallistaShot) {
+        const boltGrp = new THREE.Group();
+        const bShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.55, 6), state.mats.goldBright);
+        bShaft.rotation.x = Math.PI * 0.5;
+        const bTip = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.48, 6), state.mats.holyGlow);
+        bTip.rotation.x = Math.PI * 0.5;
+        bTip.position.z = 0.88;
+        boltGrp.add(bShaft, bTip);
+        projMesh = boltGrp;
+      } else {
+        projMesh = new THREE.Mesh(
+          isFire ? new THREE.SphereGeometry(0.24, 8, 8) : new THREE.ConeGeometry(0.12, 0.72, 6),
+          isFire ? state.mats.lavaGlow : state.mats.sapphireGlow
+        );
+      }
       projMesh.position.copy(startWorld);
       state.fxGroup.add(projMesh);
 
       const targetHit = defWorld.clone().add(new THREE.Vector3(0, 1.1, 0));
+      const arcHeight = isBallistaShot ? 0.95 : 1.65;
+      const flightDur = isBallistaShot ? 0.34 : 0.42;
+      const trailCol = isBallistaShot ? 0xfde047 : (isFire ? 0xf97316 : 0x38bdf8);
+
       state.tweens.push({
         age: 0,
-        duration: 0.42,
+        duration: flightDur,
         update(t) {
           const nx = lerp(startWorld.x, targetHit.x, t);
           const nz = lerp(startWorld.z, targetHit.z, t);
-          const ny = lerp(startWorld.y, targetHit.y, t) + Math.sin(t * Math.PI) * 1.65;
-          projMesh.lookAt(nx, ny, nz);
+          const ny = lerp(startWorld.y, targetHit.y, t) + Math.sin(t * Math.PI) * arcHeight;
+          const nextT = Math.min(1, t + 0.04);
+          const lx = lerp(startWorld.x, targetHit.x, nextT);
+          const lz = lerp(startWorld.z, targetHit.z, nextT);
+          const ly = lerp(startWorld.y, targetHit.y, nextT) + Math.sin(nextT * Math.PI) * arcHeight;
           projMesh.position.set(nx, ny, nz);
-          if (Math.random() < 0.65) {
-            spawnBurstParticles(projMesh.position, isFire ? 0xf97316 : 0x38bdf8, 1, 0.25, 0.2);
+          projMesh.lookAt(lx, ly, lz);
+          if (Math.random() < (isBallistaShot ? 0.9 : 0.65)) {
+            spawnBurstParticles(projMesh.position, trailCol, isBallistaShot ? 2 : 1, 0.32, 0.25);
           }
         },
         complete() {
@@ -2301,12 +3102,29 @@
       ? new Set(completedArr)
       : new Set(Object.keys(completedArr).filter((k) => Boolean(completedArr[k])));
 
+    const capturedObj = campaignState.capturedMines || {};
+    const capturedSet = Array.isArray(capturedObj)
+      ? new Set(capturedObj)
+      : new Set(Object.keys(capturedObj).filter((k) => Boolean(capturedObj[k])));
+
     Object.keys(state.valleyNodesMap).forEach((nId) => {
       const node = state.valleyNodesMap[nId];
       const isDone = completedSet.has(nId);
+      const isCaptured = capturedSet.has(nId) || (node.cfg.type === 'mine' && isDone);
       node.completed = isDone;
+      node.captured = isCaptured;
+
+      if (node.havenBanner) {
+        node.havenBanner.visible = isCaptured;
+      }
+
       if (node.cfg.type === 'treasure') {
         node.group.visible = !isDone;
+      } else if (node.cfg.type === 'mine') {
+        node.group.visible = true;
+        if (node.runePlate && node.runePlate.material) {
+          node.runePlate.material.opacity = isCaptured ? 0.95 : 0.78;
+        }
       } else {
         node.group.visible = true;
         if (node.runePlate && node.runePlate.material) {
@@ -2317,6 +3135,62 @@
         }
       }
     });
+
+    // Сектора объёмного 3D-Тумана Войны долины
+    const revealedObj = campaignState.revealedSectors || null;
+    if (revealedObj && state.fogClouds) {
+      const revSet = Array.isArray(revealedObj)
+        ? new Set(revealedObj)
+        : new Set(Object.keys(revealedObj).filter((k) => Boolean(revealedObj[k])));
+      Object.keys(state.fogClouds).forEach((secId) => {
+        const fc = state.fogClouds[secId];
+        if (!fc) return;
+        const isRev = revSet.has(secId);
+        if (isRev && !fc.revealed) {
+          fc.revealed = true;
+          // Плавное растворение облаков открытого сектора тумана
+          const startOp = fc.opacity || 0.84;
+          state.tweens.push({
+            age: 0,
+            duration: 0.75,
+            update(t) {
+              const cur = startOp * (1 - easeOutCubic(t));
+              fc.opacity = cur;
+              fc.puffs.forEach((p) => {
+                if (p.material) p.material.opacity = cur;
+              });
+            },
+            complete() {
+              fc.opacity = 0;
+              fc.group.visible = false;
+            }
+          });
+        } else if (!isRev) {
+          fc.revealed = false;
+          fc.opacity = 0.84;
+          fc.group.visible = true;
+          fc.puffs.forEach((p) => {
+            if (p.material) p.material.opacity = 0.84;
+          });
+        }
+      });
+    }
+
+    // Позиция конного Героя Лорда Годрика в долине (синхронизируем, если всадник сейчас не скачет)
+    const hPos = campaignState.heroPos || (campaignState.hero && campaignState.hero.pos);
+    if (hPos && typeof hPos.x === 'number' && typeof hPos.z === 'number' && state.adventureHero) {
+      if (!state.adventureHero.animBusy) {
+        state.adventureHero.pos.x = hPos.x;
+        state.adventureHero.pos.z = hPos.z;
+        state.adventureHero.group.position.set(hPos.x, -0.15, hPos.z);
+      }
+    }
+
+    // Визуальные 3D-реликвии Лорда Годрика (на всаднике и на боевом постаменте)
+    const eqArts = campaignState.equippedArtifacts || (campaignState.hero && campaignState.hero.equippedArtifacts);
+    if (eqArts) {
+      refreshAllHeroArtifactVisuals(eqArts);
+    }
   }
 
   // ============================================================================
@@ -2336,7 +3210,13 @@
     const worldVec = new THREE.Vector3();
     let found = false;
 
-    if (actorId === 'hero_player' || actorId === 'haven_lord') {
+    if (actorId === 'adventure_hero') {
+      if (state.adventureHero && state.adventureHero.group) {
+        state.adventureHero.group.getWorldPosition(worldVec);
+        worldVec.y += 1.65;
+        found = true;
+      }
+    } else if (actorId === 'hero_player' || actorId === 'haven_lord') {
       if (state.heroModels.player) {
         state.heroModels.player.getWorldPosition(worldVec);
         worldVec.y += 1.5;
@@ -2449,13 +3329,72 @@
         return firstCellHit;
       }
 
-      // Режимы 'castle' и 'valley': проверяем только интерактивные здания и узлы долины
+      // Режимы 'castle' и 'valley': проверяем всадника долины, узлы, здания и проходимую землю долины
+      if (state.mode === 'valley' && state.adventureHero && state.adventureHero.group) {
+        const advHeroHits = state.raycaster.intersectObjects([state.adventureHero.group], true);
+        for (let i = 0; i < advHeroHits.length; i++) {
+          const obj = advHeroHits[i].object;
+          if (!isObjectChainVisible(obj)) continue;
+          if (obj.userData && obj.userData.hommType === 'adventure_hero') {
+            return obj.userData;
+          }
+        }
+      }
+
       const worldHits = state.raycaster.intersectObjects([state.castleWorldGroup], true);
+      let valleyGroundHitPoint = null;
       for (let i = 0; i < worldHits.length; i++) {
-        const obj = worldHits[i].object;
+        const hit = worldHits[i];
+        const obj = hit.object;
         if (!isObjectChainVisible(obj)) continue;
-        if (obj.userData && (obj.userData.hommType === 'building' || obj.userData.hommType === 'node')) {
-          return obj.userData;
+        const ud = obj.userData;
+        if (!ud || !ud.hommType) continue;
+
+        if (ud.hommType === 'adventure_hero' && state.mode === 'valley') {
+          return ud;
+        }
+        if (ud.hommType === 'building' || ud.hommType === 'node') {
+          return ud;
+        }
+        if (state.mode === 'valley' && ud.hommType === 'valley_ground' && !valleyGroundHitPoint) {
+          valleyGroundHitPoint = hit.point;
+        }
+      }
+
+      if (state.mode === 'valley' && valleyGroundHitPoint) {
+        // Ограничиваем целевую точку проходимым радиусом Изумрудной Долины (центр [1, 11], обход утёса замка [0, 0])
+        const centerX = 1.0;
+        const centerZ = 11.0;
+        const maxWalkRadius = 26.5;
+        let gx = valleyGroundHitPoint.x;
+        let gz = valleyGroundHitPoint.z;
+        const dxC = gx - centerX;
+        const dzC = gz - centerZ;
+        const distC = Math.hypot(dxC, dzC);
+
+        // Если кликнули в самый край плато долины — прижимаем внутрь проходимой зоны
+        if (distC <= maxWalkRadius + 3.5) {
+          if (distC > maxWalkRadius) {
+            const k = maxWalkRadius / distC;
+            gx = centerX + dxC * k;
+            gz = centerZ + dzC * k;
+          }
+          // Не даём всаднику заехать внутрь центрального парящего острова замка (радиус 5.6 вокруг [0, 0])
+          const distCastle = Math.hypot(gx, gz);
+          if (distCastle < 5.6) {
+            if (distCastle < 0.05) {
+              gz = 6.2;
+            } else {
+              const pushK = 5.8 / distCastle;
+              gx *= pushK;
+              gz *= pushK;
+            }
+          }
+          return {
+            hommType: 'valley_ground',
+            x: Number(gx.toFixed(2)),
+            z: Number(gz.toFixed(2))
+          };
         }
       }
       return null;
@@ -2521,7 +3460,16 @@
       }
 
       // Режимы 'castle' и 'valley'
-      if (picked && picked.hommType === 'building') {
+      if (picked && picked.hommType === 'adventure_hero') {
+        const heroPos = state.adventureHero
+          ? { x: state.adventureHero.pos.x, z: state.adventureHero.pos.z }
+          : { x: 0, z: 6.5 };
+        HOMM5.Bus.emit('3d:adventureHeroTap', {
+          screenX: clientX,
+          screenY: clientY,
+          pos: heroPos
+        });
+      } else if (picked && picked.hommType === 'building') {
         HOMM5.Bus.emit('3d:buildingClick', {
           buildingId: picked.hommId,
           screenX: clientX,
@@ -2533,6 +3481,18 @@
           screenX: clientX,
           screenY: clientY
         });
+      } else if (state.mode === 'valley' && picked && picked.hommType === 'valley_ground') {
+        const uiSheetOpen = Boolean(HOMM5.UI && HOMM5.UI.isBottomSheetOpen);
+        if (uiSheetOpen) {
+          HOMM5.Bus.emit('3d:emptyTap', { mode: state.mode });
+        } else {
+          HOMM5.Bus.emit('3d:valleyGroundTap', {
+            x: picked.x,
+            z: picked.z,
+            screenX: clientX,
+            screenY: clientY
+          });
+        }
       } else {
         HOMM5.Bus.emit('3d:emptyTap', { mode: state.mode });
       }
@@ -2876,8 +3836,61 @@
         if (n.runePlate) n.runePlate.rotation.z = t * 0.55 * (idx % 2 === 0 ? 1 : -1);
         if (n.focalMesh && !n.completed) {
           n.focalMesh.rotation.y = t * 0.8;
+          if (n.cfg && n.cfg.type === 'relic') {
+            n.focalMesh.position.y = 1.55 + Math.sin(t * 2.2) * 0.14;
+          }
+        }
+        if (n.ringRings && n.ringRings.length > 0) {
+          n.ringRings.forEach((ring, rIdx) => {
+            ring.rotation.z = t * (0.9 + rIdx * 0.45) * (rIdx % 2 === 0 ? 1 : -1);
+            ring.rotation.y = t * 0.65 * (rIdx % 2 === 0 ? 1 : -1);
+          });
+        }
+        if (n.havenBanner && n.havenBanner.visible) {
+          n.havenBanner.rotation.y = Math.sin(t * 3.1 + idx) * 0.18;
         }
       });
+
+      // Анимация конного всадника Лорда Годрика в долине (кольцо, плащ, корона Света)
+      if (state.adventureHero && state.adventureHero.group.visible) {
+        const adv = state.adventureHero;
+        if (adv.ringMesh) {
+          adv.ringMesh.rotation.z = t * 1.1;
+          const rp = 0.95 + Math.sin(t * 3.4) * 0.06;
+          adv.ringMesh.scale.set(rp, rp, 1);
+        }
+        if (!adv.animBusy) {
+          adv.riderRoot.position.y = Math.sin(t * 2.1) * 0.045;
+          if (adv.cape) adv.cape.rotation.x = 0.26 + Math.sin(t * 2.7) * 0.08;
+        }
+        if (adv.artifactMeshes && adv.artifactMeshes.helm && adv.artifactMeshes.helm.visible) {
+          adv.artifactMeshes.helm.rotation.y = t * 1.6;
+        }
+        if (adv.artifactMeshes && adv.artifactMeshes.boots && adv.artifactMeshes.boots.visible) {
+          adv.artifactMeshes.boots.rotation.y = -t * 1.4;
+        }
+      }
+
+      // Мягкое парение объёмных 3D-облаков Тумана Войны
+      if (state.fogClouds) {
+        Object.values(state.fogClouds).forEach((fc) => {
+          if (!fc.group.visible) return;
+          fc.puffs.forEach((puff) => {
+            const u = puff.userData;
+            puff.position.x = u.baseX + Math.sin(t * 0.45 + u.phase) * 0.48;
+            puff.position.y = u.baseY + Math.cos(t * 0.6 + u.phase) * 0.22;
+            puff.position.z = u.baseZ + Math.cos(t * 0.38 + u.phase) * 0.42;
+          });
+        });
+      }
+    }
+
+    // Вращение короны Света на боевом постаменте героя
+    if (state.combatGroup && state.combatGroup.visible && state.heroModels.player) {
+      const pArts = state.heroModels.player.userData && state.heroModels.player.userData.artifactMeshes;
+      if (pArts && pArts.helm && pArts.helm.visible) {
+        pArts.helm.rotation.y = t * 1.6;
+      }
     }
 
     // 3. Живое дыхание и взмахи крыльев отрядов на арене
@@ -2980,7 +3993,35 @@
     state.desiredSpherical.radius = clamp(targetRad, preset.minRadius, maxRad);
   }
 
+  let busWired = false;
+  function bindBusListenersOnce() {
+    if (busWired || !HOMM5.Bus || typeof HOMM5.Bus.on !== 'function') return;
+    busWired = true;
+
+    HOMM5.Bus.on('adventure:heroMoved', (payload) => {
+      if (!payload) return;
+      const fromPos = payload.fromPos || payload.from || (state.adventureHero ? state.adventureHero.pos : null);
+      const toPos = payload.toPos || payload.to || payload.pos || null;
+      if (toPos) {
+        animateAdventureHeroMove(fromPos, toPos, payload.onComplete);
+      }
+    });
+
+    HOMM5.Bus.on('hero:artifactEquipped', (payload) => {
+      if (!payload) return;
+      const eq = payload.equippedArtifacts || (payload.campaign && payload.campaign.equippedArtifacts) || null;
+      if (eq) {
+        refreshAllHeroArtifactVisuals(eq);
+      } else if (payload.slot !== undefined) {
+        const next = Object.assign({}, state.equippedArtifactsCache);
+        next[payload.slot] = payload.artifactId || null;
+        refreshAllHeroArtifactVisuals(next);
+      }
+    });
+  }
+
   function init(canvasContainerEl) {
+    bindBusListenersOnce();
     if (state.initialized) return HOMM5.World3D;
     if (!hasThree() || !canvasContainerEl) return HOMM5.World3D;
 
@@ -3035,12 +4076,15 @@
     return HOMM5.World3D;
   }
 
+  bindBusListenersOnce();
+
   HOMM5.World3D = {
     init,
     setMode,
     toggleTimeOfDay,
     resetCamera,
     syncCampaignState,
+    animateAdventureHeroMove,
     buildCombatArena,
     syncBattleState,
     highlightCells,
