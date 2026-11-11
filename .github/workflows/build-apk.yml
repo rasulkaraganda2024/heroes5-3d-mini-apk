@@ -1,4 +1,4 @@
-name: Build Heroes5 3D Mini APK
+﻿name: Build Heroes5 3D Mini APK
 on:
   push:
     branches: [ main ]
@@ -18,20 +18,13 @@ jobs:
           set -e
           BT_DIR=$(ls -d $ANDROID_HOME/build-tools/34.* | sort -V | tail -n 1)
           PLATFORM_JAR=$(ls -d $ANDROID_HOME/platforms/android-34/android.jar | head -n 1)
-          echo "Using build-tools: $BT_DIR and platform: $PLATFORM_JAR"
-
           mkdir -p build/gen build/obj build/dex build/apk
-
           "$BT_DIR/aapt2" compile --dir res -o build/res.zip
           "$BT_DIR/aapt2" link -o build/apk/unsigned_unaligned.apk -I "$PLATFORM_JAR" --manifest AndroidManifest.xml --java build/gen -A assets --auto-add-overlay build/res.zip
-
           javac -source 8 -target 8 -bootclasspath "$PLATFORM_JAR" -classpath "$PLATFORM_JAR" -d build/obj build/gen/kz/stormstudio/heroes5mini/R.java src/kz/stormstudio/heroes5mini/MainActivity.java
-
           "$BT_DIR/d8" --lib "$PLATFORM_JAR" --min-api 24 --output build/dex $(find build/obj -name "*.class")
-
           cp build/dex/classes.dex .
           zip -u build/apk/unsigned_unaligned.apk classes.dex
-
           "$BT_DIR/zipalign" -f -p 4 build/apk/unsigned_unaligned.apk build/apk/aligned.apk
           keytool -genkeypair -v -keystore release.jks -storepass heroes5pass -keypass heroes5pass -alias homm5key -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=StormStudio, OU=Games, O=AshanOrder, L=Almaty, S=KZ, C=KZ"
           "$BT_DIR/apksigner" sign --ks release.jks --ks-pass pass:heroes5pass --key-pass pass:heroes5pass --out Heroes5_3D_Mini_RU.apk build/apk/aligned.apk
